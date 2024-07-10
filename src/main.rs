@@ -32,39 +32,38 @@ fn main() -> ! {
 
     let pin = io.pins.gpio4;
 
-    let mut ledc = Ledc::new(peripherals.LEDC, &clocks);
+    // initialize peripheral
+    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40.MHz()).unwrap();
+    let mut mcpwm = McPwm::new(peripherals.MCPWM0, clock_cfg);
 
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+    // connect operator0 to timer0
+    mcpwm.operator0.set_timer(&mcpwm.timer0);
+    // connect operator0 to pin
+    let mut pwm_pin = mcpwm
+        .operator0
+        .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
-    let mut lstimer0 = ledc.get_timer::<LowSpeed>(timer::Number::Timer0);
+    // let max_duty = pwm_pin.get_max_duty();
+    // log::info!("Max Duty: {}", max_duty);
+    let period = pwm_pin.get_period();
+    log::info!("Period: {}", period);
+    let timestamp = pwm_pin.get_timestamp();
+    log::info!("Timestamp: {}", timestamp);
 
-    lstimer0
-        .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty14Bit,
-            clock_source: timer::LSClockSource::APBClk,
-            frequency: 50.Hz(),
-        })
+    let timer_clock_cfg = clock_cfg
+        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 20.Hz())
         .unwrap();
+    mcpwm.timer0.start(timer_clock_cfg);
 
-    let mut channel0 = ledc.get_channel(channel::Number::Channel0, pin);
-    channel0
-        .configure(channel::config::Config {
-            timer: &lstimer0,
-            duty_pct: 8,
-            pin_config: channel::config::PinConfig::PushPull,
-        })
-        .unwrap();
+    // pin will be high 50% of the time
+    pwm_pin.set_timestamp(5);
 
     loop {
         led.set_low();
-        channel0.set_duty(20).unwrap();
         log::info!("LED Off");
         delay.delay(2000.millis());
 
-        channel0.start_duty_fade(2, 13, 5000).unwrap();
-
         for duty_num in 2..=13 {
-            channel0.set_duty(duty_num).unwrap();
             log::info!("Duty: {}", duty_num);
             delay.delay(2000.millis());
         }
