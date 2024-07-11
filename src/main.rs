@@ -25,22 +25,21 @@ fn main() -> ! {
     esp_println::logger::init_logger_from_env();
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut led = Output::new(io.pins.gpio13, Level::High);
+    let mut power_led = Output::new(io.pins.gpio13, Level::High);
 
-    led.set_high();
-    log::info!("LED On");
-    delay.delay(500.millis());
+    power_led.set_high();
+    log::info!("Power LED On");
 
     let pin_for_servo_1 = io.pins.gpio4;
     let pin_for_servo_2 = io.pins.gpio5;
 
-    let mut ledc = Ledc::new(peripherals.LEDC, &clocks);
+    let mut ledc_pwm_controller = Ledc::new(peripherals.LEDC, &clocks);
 
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+    ledc_pwm_controller.set_global_slow_clock(LSGlobalClkSource::APBClk);
 
-    let mut lstimer0 = ledc.get_timer::<LowSpeed>(timer::Number::Timer0);
+    let mut pwm_timer = ledc_pwm_controller.get_timer::<LowSpeed>(timer::Number::Timer0);
 
-    lstimer0
+    pwm_timer
         .configure(timer::config::Config {
             duty: timer::config::Duty::Duty14Bit,
             clock_source: timer::LSClockSource::APBClk,
@@ -48,25 +47,25 @@ fn main() -> ! {
         })
         .unwrap();
 
-    let mut servo_1_pwm_channel = ledc.get_channel(channel::Number::Channel0, pin_for_servo_1);
+    let mut servo_1_pwm_channel =
+        ledc_pwm_controller.get_channel(channel::Number::Channel0, pin_for_servo_1);
     servo_1_pwm_channel
         .configure(channel::config::Config {
-            timer: &lstimer0,
+            timer: &pwm_timer,
             duty_pct: 0,
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
-    let mut servo_2_pwm_channel = ledc.get_channel(channel::Number::Channel1, pin_for_servo_2);
+    let mut servo_2_pwm_channel =
+        ledc_pwm_controller.get_channel(channel::Number::Channel1, pin_for_servo_2);
     servo_2_pwm_channel
         .configure(channel::config::Config {
-            timer: &lstimer0,
+            timer: &pwm_timer,
             duty_pct: 0,
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
 
-    led.set_low();
-    log::info!("LED Off");
     loop {
         log::info!("Looping...");
 
