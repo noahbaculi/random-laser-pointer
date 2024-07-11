@@ -3,8 +3,6 @@
 
 use esp_backtrace as _;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::mcpwm::timer::TimerClockConfig;
-use esp_hal::mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig};
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
@@ -13,6 +11,9 @@ use esp_hal::{
     prelude::*,
     system::SystemControl,
 };
+
+const SERVO_MIN_DUTY: u8 = 2;
+const SERVO_MAX_DUTY: u8 = 13;
 
 #[entry]
 fn main() -> ! {
@@ -69,13 +70,12 @@ fn main() -> ! {
     loop {
         log::info!("Looping...");
 
-        for duty_num in 2..=13 {
+        for duty_num in SERVO_MIN_DUTY..=SERVO_MAX_DUTY {
+            log::info!("Duty: {}", duty_num);
             servo_1_pwm_channel.set_duty(duty_num).unwrap();
             servo_2_pwm_channel.set_duty(15 - duty_num).unwrap();
             // servo_2_pwm_channel.set_duty(duty_num).unwrap();
-            log::info!("Duty: {}", duty_num);
             delay.delay(2000.millis());
         }
-        delay.delay_millis(2000);
     }
 }
