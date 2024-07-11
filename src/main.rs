@@ -55,7 +55,7 @@ fn main() -> ! {
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
-    let mut servo_2_pwm_channel = ledc.get_channel(channel::Number::Channel0, pin_for_servo_2);
+    let mut servo_2_pwm_channel = ledc.get_channel(channel::Number::Channel1, pin_for_servo_2);
     servo_2_pwm_channel
         .configure(channel::config::Config {
             timer: &lstimer0,
@@ -64,23 +64,18 @@ fn main() -> ! {
         })
         .unwrap();
 
+    led.set_low();
+    log::info!("LED Off");
     loop {
-        servo_1_pwm_channel.set_duty(20).unwrap();
-        led.set_low();
-        log::info!("LED Off");
-        delay.delay(2000.millis());
-
-        log::info!("Servo 1 sweep start");
-        servo_1_pwm_channel.start_duty_fade(2, 13, 50_000).unwrap();
-        log::info!("Servo 2 sweep start");
-        servo_2_pwm_channel.start_duty_fade(2, 13, 50_000).unwrap();
+        log::info!("Looping...");
 
         for duty_num in 2..=13 {
-            // servo_1_pwm_channel.set_duty(duty_num).unwrap();
-            // servo_1_pwm_channel.set_duty(duty_num).unwrap();
+            servo_1_pwm_channel.set_duty(duty_num).unwrap();
+            servo_2_pwm_channel.set_duty(15 - duty_num).unwrap();
+            // servo_2_pwm_channel.set_duty(duty_num).unwrap();
             log::info!("Duty: {}", duty_num);
             delay.delay(2000.millis());
         }
+        delay.delay_millis(2000);
     }
 }
-
