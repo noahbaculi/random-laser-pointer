@@ -33,19 +33,28 @@ fn main() -> ! {
     let pin_for_servo_1 = io.pins.gpio4;
     let pin_for_servo_2 = io.pins.gpio5;
 
-    let mut ledc = Ledc::new(peripherals.LEDC, &clocks);
+    // initialize peripheral
+    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40.MHz()).unwrap();
+    let mut mcpwm = McPwm::new(peripherals.MCPWM0, clock_cfg);
 
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+    // connect operator0 to timer0
+    mcpwm.operator0.set_timer(&mcpwm.timer0);
+    // connect operator0 to pin
+    let mut pwm_pin = mcpwm
+        .operator0
+        .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
-    let mut lstimer0 = ledc.get_timer::<LowSpeed>(timer::Number::Timer0);
+    // let max_duty = pwm_pin.get_max_duty();
+    // log::info!("Max Duty: {}", max_duty);
+    let period = pwm_pin.get_period();
+    log::info!("Period: {}", period);
+    let timestamp = pwm_pin.get_timestamp();
+    log::info!("Timestamp: {}", timestamp);
 
-    lstimer0
-        .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty14Bit,
-            clock_source: timer::LSClockSource::APBClk,
-            frequency: 50.Hz(),
-        })
+    let timer_clock_cfg = clock_cfg
+        .timer_clock_with_frequency(99, PwmWorkingMode::Increase, 20.Hz())
         .unwrap();
+    mcpwm.timer0.start(timer_clock_cfg);
 
     let mut servo_1_pwm_channel = ledc.get_channel(channel::Number::Channel0, pin_for_servo_1);
     servo_1_pwm_channel
