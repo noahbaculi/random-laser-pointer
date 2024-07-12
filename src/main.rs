@@ -1,8 +1,13 @@
 #![no_std]
 #![no_main]
 
+use core::time::Duration;
+
 use esp_backtrace as _;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::reset::SleepSource;
+use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
+use esp_hal::rtc_cntl::{get_reset_reason, get_wakeup_cause, Rtc, SocResetReason};
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
@@ -11,26 +16,33 @@ use esp_hal::{
     prelude::*,
     system::SystemControl,
 };
+use esp_hal::{time, Cpu};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
-const SERVO_MIN_DUTY: u8 = 2;
-const SERVO_MAX_DUTY: u8 = 13;
+const ON_DURATION_MIN: u8 = 1; // Duration laser should be active every cycle
+const SLEEP_DURATION_MIN: u8 = 2; // Duration laser should be inactive every cycle
+
+const SERVO_MIN_DUTY: u8 = 3;
+const SERVO_MAX_DUTY: u8 = 12;
+const SERVO_MIN_SLEEP_MS: u32 = 1000;
+const SERVO_MAX_SLEEP_MS: u32 = 5000;
 
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let system = SystemControl::new(peripherals.SYSTEM);
     let clocks = ClockControl::max(system.clock_control).freeze();
-    let delay = Delay::new(&clocks);
-
+    let mut delay = Delay::new(&clocks);
+    let mut rtc = Rtc::new(peripherals.LPWR, None);
     esp_println::logger::init_logger_from_env();
 
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut power_led = Output::new(io.pins.gpio13, Level::High);
-    power_led.set_high();
+    // Instantiate LED
+    let _power_led = Output::new(io.pins.gpio13, Level::High);
     log::info!("Power LED On");
 
+    // Instantiate PWM pins
     let pin_for_servo_1 = io.pins.gpio4;
     let pin_for_servo_2 = io.pins.gpio5;
 
@@ -67,18 +79,36 @@ fn main() -> ! {
         .unwrap();
 
     let mut small_rng = SmallRng::seed_from_u64(1); // seed doesn't matter
+    let sleep_timer = TimerWakeupSource::new(Duration::from_secs(SLEEP_DURATION_MIN as u64 * 60));
 
+    log::info!("Starting loop...");
     loop {
-        log::info!("Looping...");
-
-        for duty_num in SERVO_MIN_DUTY..=SERVO_MAX_DUTY {
-            let next_random = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
-            log::info!("Next Random: {}", next_random);
-            log::info!("Duty: {}", duty_num);
-            servo_1_pwm_channel.set_duty(duty_num).unwrap();
-            servo_2_pwm_channel.set_duty(15 - duty_num).unwrap();
-            // servo_2_pwm_channel.set_duty(duty_num).unwrap();
-            delay.delay(2000.millis());
+        let loop_instant = time::current_time();
+        let uptime_min = loop_instant.duration_since_epoch().to_minutes();
+        log::info!("Uptime: {} min", uptime_min);
+        if uptime_min >= ON_DURATION_MIN.into() {
+            log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
+            delay.delay_millis(100);
+            rtc.sleep_deep(&[&sleep_timer], &mut delay);
         }
+
+        let reset_reason = get_reset_reason(Cpu::ProCpu).unwrap_or(SocResetReason::ChipPowerOn);
+        let wake_reason = get_wakeup_cause();
+        log::info!("Reset reason: {:?}", reset_reason); // ChipPoweredOn -> CoreDeepSleep
+        log::info!("Wake reason: {:?}", wake_reason); //Undefined -> Timer
+
+        let servo_1_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        log::info!("Servo 1 duty percent: {}", servo_1_duty_percent);
+        servo_1_pwm_channel.set_duty(servo_1_duty_percent).unwrap();
+
+        let servo_2_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        log::info!("Servo 2 duty percent: {}", servo_2_duty_percent);
+        servo_2_pwm_channel.set_duty(servo_2_duty_percent).unwrap();
+
+        let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
+        log::info!("Sleeping for {} ms...", sleep_duration);
+        delay.delay_millis(sleep_duration);
+
+        log::info!("---");
     }
 }
