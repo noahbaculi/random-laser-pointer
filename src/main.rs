@@ -5,7 +5,6 @@ use core::time::Duration;
 
 use esp_backtrace as _;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::reset::SleepSource;
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::rtc_cntl::{get_reset_reason, get_wakeup_cause, Rtc, SocResetReason};
 use esp_hal::{
@@ -91,11 +90,6 @@ fn main() -> ! {
             delay.delay_millis(100);
             rtc.sleep_deep(&[&sleep_timer], &mut delay);
         }
-
-        let reset_reason = get_reset_reason(Cpu::ProCpu).unwrap_or(SocResetReason::ChipPowerOn);
-        let wake_reason = get_wakeup_cause();
-        log::info!("Reset reason: {:?}", reset_reason); // ChipPoweredOn -> CoreDeepSleep
-        log::info!("Wake reason: {:?}", wake_reason); //Undefined -> Timer
 
         let servo_1_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
         log::info!("Servo 1 duty percent: {}", servo_1_duty_percent);
