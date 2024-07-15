@@ -6,7 +6,8 @@ use core::time::Duration;
 use esp_backtrace as _;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
-use esp_hal::rtc_cntl::{get_reset_reason, get_wakeup_cause, Rtc, SocResetReason};
+use esp_hal::rtc_cntl::Rtc;
+use esp_hal::time;
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
@@ -15,17 +16,16 @@ use esp_hal::{
     prelude::*,
     system::SystemControl,
 };
-use esp_hal::{time, Cpu};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
 const ON_DURATION_MIN: u8 = 1; // Duration laser should be active every cycle
 const SLEEP_DURATION_MIN: u8 = 2; // Duration laser should be inactive every cycle
+const SERVO_MIN_SLEEP_MS: u32 = 900;
+const SERVO_MAX_SLEEP_MS: u32 = 5 * 1_000;
 
 const SERVO_MIN_DUTY: u8 = 3;
 const SERVO_MAX_DUTY: u8 = 12;
-const SERVO_MIN_SLEEP_MS: u32 = 1000;
-const SERVO_MAX_SLEEP_MS: u32 = 5000;
 
 #[entry]
 fn main() -> ! {
