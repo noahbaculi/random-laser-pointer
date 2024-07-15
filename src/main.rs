@@ -35,19 +35,20 @@ fn main() -> ! {
     let clocks = ClockControl::max(system.clock_control).freeze();
     let mut delay = Delay::new(&clocks);
     let mut rtc = Rtc::new(peripherals.LPWR, None);
+    let mut small_rng = SmallRng::seed_from_u64(1); // seed irrelevant for random number generation
     esp_println::logger::init_logger_from_env();
 
     // Instantiate LED
     let _power_led = Output::new(io.pins.gpio13, Level::High);
     log::info!("Power LED On");
 
-    // Instantiate PWM pins
+    // Instantiate pins
     let pin_for_servo_1 = io.pins.gpio4;
     let pin_for_servo_2 = io.pins.gpio5;
 
+    // Instantiate PWM infra
     let mut ledc_pwm_controller = Ledc::new(peripherals.LEDC, &clocks);
     ledc_pwm_controller.set_global_slow_clock(LSGlobalClkSource::APBClk);
-
     let mut pwm_timer = ledc_pwm_controller.get_timer::<LowSpeed>(timer::Number::Timer0);
     pwm_timer
         .configure(timer::config::Config {
@@ -77,13 +78,13 @@ fn main() -> ! {
         })
         .unwrap();
 
-    let mut small_rng = SmallRng::seed_from_u64(1); // seed doesn't matter
+    // Create sleep timer wakeup source
     let sleep_timer = TimerWakeupSource::new(Duration::from_secs(SLEEP_DURATION_MIN as u64 * 60));
 
     log::info!("Starting loop...");
     loop {
-        let loop_instant = time::current_time();
-        let uptime_min = loop_instant.duration_since_epoch().to_minutes();
+        // Check uptime and enter deep sleep if needed
+        let uptime_min = time::current_time().duration_since_epoch().to_minutes();
         log::info!("Uptime: {} min", uptime_min);
         if uptime_min >= ON_DURATION_MIN.into() {
             log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
@@ -91,6 +92,7 @@ fn main() -> ! {
             rtc.sleep_deep(&[&sleep_timer], &mut delay);
         }
 
+        // Move servos to random positions
         let servo_1_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
         log::info!("Servo 1 duty percent: {}", servo_1_duty_percent);
         servo_1_pwm_channel.set_duty(servo_1_duty_percent).unwrap();
@@ -99,6 +101,7 @@ fn main() -> ! {
         log::info!("Servo 2 duty percent: {}", servo_2_duty_percent);
         servo_2_pwm_channel.set_duty(servo_2_duty_percent).unwrap();
 
+        // Sleep for random duration
         let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
         log::info!("Sleeping for {} ms...", sleep_duration);
         delay.delay_millis(sleep_duration);
