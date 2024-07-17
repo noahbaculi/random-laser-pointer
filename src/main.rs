@@ -111,14 +111,16 @@ fn main() -> ! {
 
         // Check potentiometer values
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x_pin)).unwrap();
-        let servo_x_duty_range = pot_to_servo_duty(pot_x_value);
+        // Invert potentiometer value to match wired direction
+        let servo_x_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_x_value);
         log::info!(
             "Potentiometer X = {:4} => {:?}",
             pot_x_value,
             servo_x_duty_range,
         );
         let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
-        let servo_y_duty_range = pot_to_servo_duty(pot_y_value);
+        // Invert potentiometer value to match wired direction
+        let servo_y_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_y_value);
         log::info!(
             "Potentiometer Y = {:4} => {:?}",
             pot_y_value,
