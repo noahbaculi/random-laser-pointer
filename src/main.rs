@@ -44,8 +44,8 @@ fn main() -> ! {
     log::info!("Power LED On");
 
     // Instantiate pins
-    let pin_for_servo_1 = io.pins.gpio4;
-    let pin_for_servo_2 = io.pins.gpio5;
+    let pin_for_servo_x = io.pins.gpio4;
+    let pin_for_servo_y = io.pins.gpio5;
     let pin_for_pot_x = io.pins.gpio32; // ADC pin
     let pin_for_pot_y = io.pins.gpio33; // ADC pin
 
@@ -62,18 +62,18 @@ fn main() -> ! {
         .unwrap();
 
     // Instantiate PWM channels
-    let mut servo_1_pwm_channel =
-        ledc_pwm_controller.get_channel(channel::Number::Channel0, pin_for_servo_1);
-    servo_1_pwm_channel
+    let mut servo_x_pwm_channel =
+        ledc_pwm_controller.get_channel(channel::Number::Channel0, pin_for_servo_x);
+    servo_x_pwm_channel
         .configure(channel::config::Config {
             timer: &pwm_timer,
             duty_pct: 0,
             pin_config: channel::config::PinConfig::PushPull,
         })
         .unwrap();
-    let mut servo_2_pwm_channel =
-        ledc_pwm_controller.get_channel(channel::Number::Channel1, pin_for_servo_2);
-    servo_2_pwm_channel
+    let mut servo_y_pwm_channel =
+        ledc_pwm_controller.get_channel(channel::Number::Channel1, pin_for_servo_y);
+    servo_y_pwm_channel
         .configure(channel::config::Config {
             timer: &pwm_timer,
             duty_pct: 0,
@@ -93,7 +93,7 @@ fn main() -> ! {
     loop {
         // Check uptime and enter deep sleep if needed
         let uptime_min = time::current_time().duration_since_epoch().to_minutes();
-        log::info!("Uptime: {} min", uptime_min);
+        log::info!("Uptime = {} min", uptime_min);
         if uptime_min >= ON_DURATION_MIN.into() {
             log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
             delay.delay_millis(100);
@@ -110,13 +110,15 @@ fn main() -> ! {
         );
 
         // Move servos to random positions
-        let servo_1_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
-        log::info!("Servo 1 duty percent: {}", servo_1_duty_percent);
-        servo_1_pwm_channel.set_duty(servo_1_duty_percent).unwrap();
-
-        let servo_2_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
-        log::info!("Servo 2 duty percent: {}", servo_2_duty_percent);
-        servo_2_pwm_channel.set_duty(servo_2_duty_percent).unwrap();
+        let servo_x_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        servo_x_pwm_channel.set_duty(servo_x_duty_percent).unwrap();
+        let servo_y_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        servo_y_pwm_channel.set_duty(servo_y_duty_percent).unwrap();
+        log::info!(
+            "Servo 1 duty = {:>2}% | Servo 2 duty = {:>2}%",
+            servo_x_duty_percent,
+            servo_y_duty_percent
+        );
 
         // Sleep for random duration
         let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
