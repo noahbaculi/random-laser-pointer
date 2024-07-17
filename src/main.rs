@@ -4,6 +4,7 @@
 use core::time::Duration;
 
 use esp_backtrace as _;
+use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::rtc_cntl::Rtc;
@@ -45,6 +46,8 @@ fn main() -> ! {
     // Instantiate pins
     let pin_for_servo_1 = io.pins.gpio4;
     let pin_for_servo_2 = io.pins.gpio5;
+    let pin_for_pot_x = io.pins.gpio32; // ADC pin
+    let pin_for_pot_y = io.pins.gpio33; // ADC pin
 
     // Instantiate PWM infra
     let mut ledc_pwm_controller = Ledc::new(peripherals.LEDC, &clocks);
@@ -78,6 +81,11 @@ fn main() -> ! {
         })
         .unwrap();
 
+    let mut adc_config = AdcConfig::new();
+    let mut pot_x_pin = adc_config.enable_pin(pin_for_pot_x, Attenuation::Attenuation11dB);
+    let mut pot_y_pin = adc_config.enable_pin(pin_for_pot_y, Attenuation::Attenuation11dB);
+    let mut adc = Adc::new(peripherals.ADC1, adc_config);
+
     // Create sleep timer wakeup source
     let sleep_timer = TimerWakeupSource::new(Duration::from_secs(SLEEP_DURATION_MIN as u64 * 60));
 
@@ -91,6 +99,15 @@ fn main() -> ! {
             delay.delay_millis(100);
             rtc.sleep_deep(&[&sleep_timer], &mut delay);
         }
+
+        // Check potentiometer values
+        let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x_pin)).unwrap();
+        let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
+        log::info!(
+            "Potentiometer X value = {:>4} | Potentiometer Y value = {:>4}",
+            pot_x_value,
+            pot_y_value
+        );
 
         // Move servos to random positions
         let servo_1_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
