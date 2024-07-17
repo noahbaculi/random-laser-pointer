@@ -102,7 +102,7 @@ fn main() -> ! {
     loop {
         // Check uptime and enter deep sleep if needed
         let uptime_min = time::current_time().duration_since_epoch().to_minutes();
-        log::info!("Uptime = {} min", uptime_min);
+        log::info!("--- Uptime = {} min", uptime_min);
         if uptime_min >= ON_DURATION_MIN.into() {
             log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
             delay.delay_millis(100);
@@ -113,14 +113,14 @@ fn main() -> ! {
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x_pin)).unwrap();
         let servo_x_duty_range = pot_to_servo_duty(pot_x_value);
         log::info!(
-            "Potentiometer X = {:4} => {:?}%",
+            "Potentiometer X = {:4} => {:?}",
             pot_x_value,
             servo_x_duty_range,
         );
         let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
         let servo_y_duty_range = pot_to_servo_duty(pot_y_value);
         log::info!(
-            "Potentiometer Y = {:4} => {:?}%",
+            "Potentiometer Y = {:4} => {:?}",
             pot_y_value,
             servo_y_duty_range
         );
@@ -143,7 +143,7 @@ fn main() -> ! {
             servo_x_pwm_channel
                 .set_duty(servo_x_duty_range.max)
                 .unwrap();
-            delay.delay_millis(2 * preview_servo_delay_ms);
+            delay.delay_millis(preview_servo_delay_ms);
             continue;
         }
 
@@ -164,8 +164,6 @@ fn main() -> ! {
         let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
         log::info!("Sleeping for {} ms...", sleep_duration);
         delay.delay_millis(sleep_duration);
-
-        log::info!("---");
     }
 }
 
@@ -196,12 +194,6 @@ fn pot_to_servo_duty(pot_value: u16) -> ServoDutyPercentRange {
     ) as u8;
 
     assert!(range_radius <= ((SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2));
-
-    log::info!(
-        "Range radius = {} | Servo middle = {}",
-        range_radius,
-        SERVO_MIDDLE_DUTY
-    );
 
     ServoDutyPercentRange {
         min: SERVO_MIDDLE_DUTY - range_radius,
