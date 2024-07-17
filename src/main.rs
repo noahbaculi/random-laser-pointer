@@ -5,6 +5,7 @@ use core::time::Duration;
 
 use esp_backtrace as _;
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
+use esp_hal::gpio::{Input, Pull};
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::rtc_cntl::Rtc;
@@ -20,13 +21,14 @@ use esp_hal::{
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
-const ON_DURATION_MIN: u8 = 1; // Duration laser should be active every cycle
-const SLEEP_DURATION_MIN: u8 = 2; // Duration laser should be inactive every cycle
+const ON_DURATION_MIN: u8 = 10; // Duration laser should be active every cycle
+const SLEEP_DURATION_MIN: u8 = 20; // Duration laser should be inactive every cycle
 const SERVO_MIN_SLEEP_MS: u32 = 900;
 const SERVO_MAX_SLEEP_MS: u32 = 5 * 1_000;
 
 const SERVO_MIN_DUTY: u8 = 3;
 const SERVO_MAX_DUTY: u8 = 12;
+const NUM_SERVO_LEVELS: u8 = (SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2;
 
 #[entry]
 fn main() -> ! {
@@ -48,6 +50,7 @@ fn main() -> ! {
     let pin_for_servo_y = io.pins.gpio5;
     let pin_for_pot_x = io.pins.gpio32; // ADC pin
     let pin_for_pot_y = io.pins.gpio33; // ADC pin
+    let pin_for_preview_btn = io.pins.gpio12; // ADC pin
 
     // Instantiate PWM infra
     let mut ledc_pwm_controller = Ledc::new(peripherals.LEDC, &clocks);
@@ -81,15 +84,18 @@ fn main() -> ! {
         })
         .unwrap();
 
+    // Instantiate ADC
     let mut adc_config = AdcConfig::new();
     let mut pot_x_pin = adc_config.enable_pin(pin_for_pot_x, Attenuation::Attenuation11dB);
     let mut pot_y_pin = adc_config.enable_pin(pin_for_pot_y, Attenuation::Attenuation11dB);
     let mut adc = Adc::new(peripherals.ADC1, adc_config);
 
+    let preview_btn = Input::new(pin_for_preview_btn, Pull::Up);
+
     // Create sleep timer wakeup source
     let sleep_timer = TimerWakeupSource::new(Duration::from_secs(SLEEP_DURATION_MIN as u64 * 60));
 
-    log::info!("Starting loop...");
+    log::info!("Starting loop... SERVO_LEVELS = {}", NUM_SERVO_LEVELS);
     loop {
         // Check uptime and enter deep sleep if needed
         let uptime_min = time::current_time().duration_since_epoch().to_minutes();
@@ -109,10 +115,29 @@ fn main() -> ! {
             pot_y_value
         );
 
+        let servo_x_min_duty = SERVO_MIN_DUTY;
+        let servo_x_max_duty = SERVO_MAX_DUTY;
+        let servo_y_min_duty = SERVO_MIN_DUTY;
+        let servo_y_max_duty = SERVO_MAX_DUTY;
+
+        if preview_btn.is_low() {
+            log::info!("Preview button pressed!");
+            let preview_servo_delay_ms = 500;
+            servo_y_pwm_channel.set_duty(servo_y_min_duty).unwrap();
+            delay.delay_millis(preview_servo_delay_ms);
+            servo_x_pwm_channel.set_duty(servo_x_min_duty).unwrap();
+            delay.delay_millis(preview_servo_delay_ms);
+            servo_y_pwm_channel.set_duty(servo_y_max_duty).unwrap();
+            delay.delay_millis(preview_servo_delay_ms);
+            servo_x_pwm_channel.set_duty(servo_x_max_duty).unwrap();
+            delay.delay_millis(2 * preview_servo_delay_ms);
+            continue;
+        }
+
         // Move servos to random positions
-        let servo_x_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        let servo_x_duty_percent = small_rng.gen_range(servo_x_min_duty..=servo_x_max_duty);
         servo_x_pwm_channel.set_duty(servo_x_duty_percent).unwrap();
-        let servo_y_duty_percent = small_rng.gen_range(SERVO_MIN_DUTY..=SERVO_MAX_DUTY);
+        let servo_y_duty_percent = small_rng.gen_range(servo_y_min_duty..=servo_y_max_duty);
         servo_y_pwm_channel.set_duty(servo_y_duty_percent).unwrap();
         log::info!(
             "Servo 1 duty = {:>2}% | Servo 2 duty = {:>2}%",
