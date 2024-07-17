@@ -28,7 +28,7 @@ const SERVO_MAX_SLEEP_MS: u32 = 5 * 1_000;
 
 const SERVO_MIN_DUTY: u8 = 3;
 const SERVO_MAX_DUTY: u8 = 13;
-const SERVO_MIDDLE_DUTY: u8 = (SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2;
+const SERVO_MIDDLE_DUTY: u8 = SERVO_MIN_DUTY + ((SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2);
 const POT_MIN_VALUE: u16 = 0;
 const POT_MAX_VALUE: u16 = 4095;
 const NUM_SERVO_LEVELS: u8 = (SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2;
@@ -111,38 +111,48 @@ fn main() -> ! {
 
         // Check potentiometer values
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x_pin)).unwrap();
-        let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
         let servo_x_duty_range = pot_to_servo_duty(pot_x_value);
         log::info!(
-            "Potentiometer X value = {:>4} => {:?} | Potentiometer Y value = {:>4}",
+            "Potentiometer X = {:4} => {:?}%",
             pot_x_value,
             servo_x_duty_range,
-            pot_y_value
         );
-
-        let servo_x_min_duty = SERVO_MIN_DUTY;
-        let servo_x_max_duty = SERVO_MAX_DUTY;
-        let servo_y_min_duty = SERVO_MIN_DUTY;
-        let servo_y_max_duty = SERVO_MAX_DUTY;
+        let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
+        let servo_y_duty_range = pot_to_servo_duty(pot_y_value);
+        log::info!(
+            "Potentiometer Y = {:4} => {:?}%",
+            pot_y_value,
+            servo_y_duty_range
+        );
 
         if preview_btn.is_low() {
             log::info!("Preview button pressed!");
             let preview_servo_delay_ms = 500;
-            servo_y_pwm_channel.set_duty(servo_y_min_duty).unwrap();
+            servo_y_pwm_channel
+                .set_duty(servo_y_duty_range.min)
+                .unwrap();
             delay.delay_millis(preview_servo_delay_ms);
-            servo_x_pwm_channel.set_duty(servo_x_min_duty).unwrap();
+            servo_x_pwm_channel
+                .set_duty(servo_x_duty_range.min)
+                .unwrap();
             delay.delay_millis(preview_servo_delay_ms);
-            servo_y_pwm_channel.set_duty(servo_y_max_duty).unwrap();
+            servo_y_pwm_channel
+                .set_duty(servo_y_duty_range.max)
+                .unwrap();
             delay.delay_millis(preview_servo_delay_ms);
-            servo_x_pwm_channel.set_duty(servo_x_max_duty).unwrap();
+            servo_x_pwm_channel
+                .set_duty(servo_x_duty_range.max)
+                .unwrap();
             delay.delay_millis(2 * preview_servo_delay_ms);
             continue;
         }
 
         // Move servos to random positions
-        let servo_x_duty_percent = small_rng.gen_range(servo_x_min_duty..=servo_x_max_duty);
+        let servo_x_duty_percent =
+            small_rng.gen_range(servo_x_duty_range.min..=servo_x_duty_range.max);
         servo_x_pwm_channel.set_duty(servo_x_duty_percent).unwrap();
-        let servo_y_duty_percent = small_rng.gen_range(servo_y_min_duty..=servo_y_max_duty);
+        let servo_y_duty_percent =
+            small_rng.gen_range(servo_y_duty_range.min..=servo_y_duty_range.max);
         servo_y_pwm_channel.set_duty(servo_y_duty_percent).unwrap();
         log::info!(
             "Servo 1 duty = {:>2}% | Servo 2 duty = {:>2}%",
@@ -167,7 +177,7 @@ where
         + core::ops::Div<Output = T>
         + core::ops::Sub<Output = T>,
 {
-    (in_value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+    ((in_value - in_min) * (out_max - out_min) / (in_max - in_min)) + out_min
 }
 
 #[derive(Debug)]
@@ -187,7 +197,11 @@ fn pot_to_servo_duty(pot_value: u16) -> ServoDutyPercentRange {
 
     assert!(range_radius <= ((SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2));
 
-    log::info!("Range radius = {}", range_radius);
+    log::info!(
+        "Range radius = {} | Servo middle = {}",
+        range_radius,
+        SERVO_MIDDLE_DUTY
+    );
 
     ServoDutyPercentRange {
         min: SERVO_MIDDLE_DUTY - range_radius,
