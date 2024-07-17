@@ -27,7 +27,10 @@ const SERVO_MIN_SLEEP_MS: u32 = 900;
 const SERVO_MAX_SLEEP_MS: u32 = 5 * 1_000;
 
 const SERVO_MIN_DUTY: u8 = 3;
-const SERVO_MAX_DUTY: u8 = 12;
+const SERVO_MAX_DUTY: u8 = 13;
+const SERVO_MIDDLE_DUTY: u8 = (SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2;
+const POT_MIN_VALUE: u16 = 0;
+const POT_MAX_VALUE: u16 = 4095;
 const NUM_SERVO_LEVELS: u8 = (SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2;
 
 #[entry]
@@ -109,9 +112,11 @@ fn main() -> ! {
         // Check potentiometer values
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x_pin)).unwrap();
         let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y_pin)).unwrap();
+        let servo_x_duty_range = pot_to_servo_duty(pot_x_value);
         log::info!(
-            "Potentiometer X value = {:>4} | Potentiometer Y value = {:>4}",
+            "Potentiometer X value = {:>4} => {:?} | Potentiometer Y value = {:>4}",
             pot_x_value,
+            servo_x_duty_range,
             pot_y_value
         );
 
@@ -151,5 +156,41 @@ fn main() -> ! {
         delay.delay_millis(sleep_duration);
 
         log::info!("---");
+    }
+}
+
+fn map_range<T>(in_value: T, in_min: T, in_max: T, out_min: T, out_max: T) -> T
+where
+    T: Copy
+        + core::ops::Mul<Output = T>
+        + core::ops::Add<Output = T>
+        + core::ops::Div<Output = T>
+        + core::ops::Sub<Output = T>,
+{
+    (in_value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+}
+
+#[derive(Debug)]
+struct ServoDutyPercentRange {
+    min: u8,
+    max: u8,
+}
+
+fn pot_to_servo_duty(pot_value: u16) -> ServoDutyPercentRange {
+    let range_radius = map_range(
+        pot_value,
+        POT_MIN_VALUE,
+        POT_MAX_VALUE,
+        0,
+        ((SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2) as u16,
+    ) as u8;
+
+    assert!(range_radius <= ((SERVO_MAX_DUTY - SERVO_MIN_DUTY) / 2));
+
+    log::info!("Range radius = {}", range_radius);
+
+    ServoDutyPercentRange {
+        min: SERVO_MIDDLE_DUTY - range_radius,
+        max: SERVO_MIDDLE_DUTY + range_radius,
     }
 }
