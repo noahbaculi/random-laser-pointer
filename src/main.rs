@@ -3,6 +3,7 @@
 
 use core::time::Duration;
 
+use embedded_hal::pwm::SetDutyCycle;
 use esp_backtrace as _;
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::gpio::{Input, Pull};
@@ -100,6 +101,25 @@ fn main() -> ! {
 
     log::info!("Starting loop... SERVO_LEVELS = {}", NUM_SERVO_LEVELS);
     loop {
+        let max_duty = servo_x_pwm_channel.max_duty_cycle();
+
+        log::info!("Max duty cycle = {}", max_duty);
+        for duty_percent in SERVO_MIN_DUTY..=SERVO_MAX_DUTY {
+            let duty_value: u32 = (duty_percent as u32 * max_duty as u32) / 100;
+            log::info!(
+                "Setting duty cycle to {}% => {} / {}",
+                duty_percent,
+                duty_value,
+                max_duty
+            );
+            servo_x_pwm_channel
+                .set_duty_cycle(duty_value.try_into().unwrap())
+                .unwrap();
+            delay.delay_millis(1000);
+        }
+        delay.delay_millis(1000);
+        continue;
+
         // Check uptime and enter deep sleep if needed
         let uptime_min = time::current_time().duration_since_epoch().to_minutes();
         log::info!("--- Uptime = {} min", uptime_min);
