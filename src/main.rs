@@ -104,17 +104,9 @@ fn main() -> ! {
         let max_duty = servo_x_pwm_channel.max_duty_cycle();
 
         log::info!("Max duty cycle = {}", max_duty);
-        for duty_percent in SERVO_MIN_DUTY..=SERVO_MAX_DUTY {
-            let duty_value: u32 = (duty_percent as u32 * max_duty as u32) / 100;
-            log::info!(
-                "Setting duty cycle to {}% => {} / {}",
-                duty_percent,
-                duty_value,
-                max_duty
-            );
-            servo_x_pwm_channel
-                .set_duty_cycle(duty_value.try_into().unwrap())
-                .unwrap();
+        for duty_value in (500..=2100).step_by(20) {
+            log::info!("Setting duty cycle to {} / {}", duty_value, max_duty);
+            servo_x_pwm_channel.set_duty_cycle(duty_value).unwrap();
             delay.delay_millis(1000);
         }
         delay.delay_millis(1000);
