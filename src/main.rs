@@ -5,7 +5,6 @@ use core::cmp::Ordering;
 use core::ops::Range;
 use core::time::Duration;
 
-use embedded_hal::delay::DelayNs;
 use embedded_hal::pwm::SetDutyCycle;
 use esp_backtrace as _;
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
@@ -29,7 +28,9 @@ use rand::{Rng, SeedableRng};
 const ON_DURATION_MIN: u8 = 10; // Duration laser should be active every cycle
 const SLEEP_DURATION_MIN: u8 = 20; // Duration laser should be inactive every cycle
 const SERVO_MIN_SLEEP_MS: u32 = 900;
-const SERVO_MAX_SLEEP_MS: u32 = 5 * 1_000;
+const SERVO_MAX_SLEEP_MS: u32 = 2 * 1_000;
+const SERVO_MIN_STEP_SLEEP_US: u32 = 1_000;
+const SERVO_MAX_STEP_SLEEP_US: u32 = 15_000;
 
 const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
 const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
@@ -189,10 +190,20 @@ fn main() -> ! {
         move_servo_gradually(
             &mut servo_x_pwm_channel,
             &mut delay,
+            &mut small_rng,
             last_servo_x_duty,
             servo_x_duty,
         );
         last_servo_x_duty = servo_x_duty;
+
+        move_servo_gradually(
+            &mut servo_y_pwm_channel,
+            &mut delay,
+            &mut small_rng,
+            last_servo_y_duty,
+            servo_y_duty,
+        );
+        last_servo_y_duty = servo_y_duty;
 
         // Sleep for random duration
         let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
@@ -233,13 +244,13 @@ fn pot_to_servo_duty(pot_value: u16, min_servo_duty: f32, max_servo_duty: f32) -
 fn move_servo_gradually<S, O>(
     servo_pwm_channel: &mut ledc::channel::Channel<S, O>,
     delay: &mut Delay,
+    rng: &mut SmallRng,
     start_duty: u16,
     end_duty: u16,
 ) where
     S: TimerSpeed,
     O: OutputPin,
 {
-    let delay_between_steps_ms = 100;
     log::info!(
         "Moving servo gradually from {} to {}...",
         start_duty,
@@ -250,13 +261,15 @@ fn move_servo_gradually<S, O>(
         Ordering::Less => {
             for duty_value in start_duty..=end_duty {
                 servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
-                delay.delay_ms(delay_between_steps_ms)
+                delay
+                    .delay_micros(rng.gen_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US));
             }
         }
         Ordering::Greater => {
             for duty_value in (end_duty..=start_duty).rev() {
                 servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
-                delay.delay_ms(delay_between_steps_ms);
+                delay
+                    .delay_micros(rng.gen_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US));
             }
         }
     }
