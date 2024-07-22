@@ -1,14 +1,17 @@
 #![no_std]
 #![no_main]
 
+use core::cmp::Ordering;
 use core::ops::Range;
 use core::time::Duration;
 
+use embedded_hal::delay::DelayNs;
 use embedded_hal::pwm::SetDutyCycle;
 use esp_backtrace as _;
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
-use esp_hal::gpio::{Input, Pull};
-use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::gpio::{Input, OutputPin, Pull};
+use esp_hal::ledc::timer::TimerSpeed;
+use esp_hal::ledc::{self, channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::time;
@@ -113,6 +116,9 @@ fn main() -> ! {
         servo_max_duty
     );
 
+    let mut last_servo_x_duty = (servo_min_duty + ((servo_max_duty - servo_min_duty) / 2.0)) as u16;
+    let mut last_servo_y_duty = (servo_min_duty + ((servo_max_duty - servo_min_duty) / 2.0)) as u16;
+
     log::info!("Starting loop...");
     loop {
         // Check uptime and enter deep sleep if needed
@@ -167,25 +173,26 @@ fn main() -> ! {
         }
 
         // Move servos to random positions
-        let servo_x_duty_percent = match servo_x_duty_range.is_empty() {
+        let servo_x_duty = match servo_x_duty_range.is_empty() {
             true => servo_x_duty_range.start,
             false => small_rng.gen_range(servo_x_duty_range),
         };
-        servo_x_pwm_channel
-            .set_duty_cycle(servo_x_duty_percent)
-            .unwrap();
-        let servo_y_duty_percent = match servo_y_duty_range.is_empty() {
+        let servo_y_duty = match servo_y_duty_range.is_empty() {
             true => servo_y_duty_range.start,
             false => small_rng.gen_range(servo_y_duty_range),
         };
-        servo_y_pwm_channel
-            .set_duty_cycle(servo_y_duty_percent)
-            .unwrap();
         log::info!(
             "Servo X duty = {:>2} | Servo Y duty = {:>2}",
-            servo_x_duty_percent,
-            servo_y_duty_percent
+            servo_x_duty,
+            servo_y_duty
         );
+        move_servo_gradually(
+            &mut servo_x_pwm_channel,
+            &mut delay,
+            last_servo_x_duty,
+            servo_x_duty,
+        );
+        last_servo_x_duty = servo_x_duty;
 
         // Sleep for random duration
         let sleep_duration = small_rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
@@ -220,5 +227,37 @@ fn pot_to_servo_duty(pot_value: u16, min_servo_duty: f32, max_servo_duty: f32) -
     Range {
         start: (servo_middle_duty - range_radius) as u16,
         end: (servo_middle_duty + range_radius) as u16,
+    }
+}
+
+fn move_servo_gradually<S, O>(
+    servo_pwm_channel: &mut ledc::channel::Channel<S, O>,
+    delay: &mut Delay,
+    start_duty: u16,
+    end_duty: u16,
+) where
+    S: TimerSpeed,
+    O: OutputPin,
+{
+    let delay_between_steps_ms = 100;
+    log::info!(
+        "Moving servo gradually from {} to {}...",
+        start_duty,
+        end_duty
+    );
+    match start_duty.cmp(&end_duty) {
+        Ordering::Equal => (), // Do nothing
+        Ordering::Less => {
+            for duty_value in start_duty..=end_duty {
+                servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
+                delay.delay_ms(delay_between_steps_ms)
+            }
+        }
+        Ordering::Greater => {
+            for duty_value in (end_duty..=start_duty).rev() {
+                servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
+                delay.delay_ms(delay_between_steps_ms);
+            }
+        }
     }
 }
