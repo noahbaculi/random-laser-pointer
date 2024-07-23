@@ -48,15 +48,15 @@ fn main() -> ! {
     let mut small_rng = SmallRng::seed_from_u64(1); // seed irrelevant for random number generation
     esp_println::logger::init_logger_from_env();
 
-    // Instantiate LED
-    let _power_led = Output::new(io.pins.gpio13, Level::High);
-    log::info!("Power LED On");
+    // Instantiate Laser Diode
+    let _laser_diode = Output::new(io.pins.gpio13, Level::High);
+    log::info!("Laser Diode On");
 
     // Instantiate pins
     let pin_for_servo_x = io.pins.gpio4;
     let pin_for_servo_y = io.pins.gpio5;
-    let pin_for_pot_x = io.pins.gpio32; // ADC pin
-    let pin_for_pot_y = io.pins.gpio33; // ADC pin
+    let pin_for_pot_x = io.pins.gpio33; // ADC pin
+    let pin_for_pot_y = io.pins.gpio32; // ADC pin
     let pin_for_preview_btn = io.pins.gpio12; // ADC pin
 
     // Instantiate ADC
