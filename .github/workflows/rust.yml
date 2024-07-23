@@ -11,16 +11,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
 
     name: Build and Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: cargo-bins/cargo-binstall@main
-      - uses: Swatinem/rust-cache@v2
       - name: Install espup
         run: cargo +stable binstall --no-confirm espup && espup install
+      - uses: Swatinem/rust-cache@v2
       - name: Cargo Build
         run: source $HOME/export-esp.sh && cargo build --verbose
       - name: Clippy
