@@ -17,14 +17,15 @@ jobs:
           - nightly
     steps:
       - uses: actions/checkout@v4
-      # - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@main
       # - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo +stable install espup
+      - run: cargo +stable binstall espup
       - run: espup install
       # - run: source $HOME/export-esp.sh && cargo +esp build
       # - run: source $HOME/export-esp.sh
-      - run: cat $HOME/export-esp.sh >> ~/.bashrc
-      - run: cargo build --verbose
+      # - run: cat $HOME/export-esp.sh >> ~/.bashrc
+      - run: source $HOME/export-esp.sh
+            cargo build --verbose
       - run: cargo test --verbose
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
