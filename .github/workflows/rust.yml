@@ -8,25 +8,17 @@ env:
 
 jobs:
   build_and_test:
-    name: Rust project - latest
+    name: Build and Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        toolchain:
-          - stable
-          - nightly
     steps:
       - uses: actions/checkout@v4
       - uses: cargo-bins/cargo-binstall@main
-      # - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo +stable binstall --no-confirm espup
-      - run: espup install
-      # - run: source $HOME/export-esp.sh && cargo +esp build
-      # - run: source $HOME/export-esp.sh
-      # - run: cat $HOME/export-esp.sh >> ~/.bashrc
-      - run: source $HOME/export-esp.sh
-            cargo build --verbose
-      - run: cargo test --verbose
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
+      - name: Install espup
+        run: cargo +stable binstall --no-confirm espup && espup install
+      - name: Cargo Build
+        run: source $HOME/export-esp.sh && cargo build --verbose
+      - name: Cargo Test
+        run: source $HOME/export-esp.sh && cargo test --verbose
+      - name: Clippy
+        run: source $HOME/export-esp.sh && cargo clippy --all-targets --all-features
 
