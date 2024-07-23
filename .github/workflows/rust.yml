@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cargo-bins/cargo-binstall@main
       # - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo +stable binstall espup
+      - run: cargo +stable binstall --no-confirm espup
       - run: espup install
       # - run: source $HOME/export-esp.sh && cargo +esp build
       # - run: source $HOME/export-esp.sh
