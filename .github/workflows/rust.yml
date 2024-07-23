@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       # - uses: cargo-bins/cargo-binstall@main
       # - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo install espup
+      - run: cargo +default install espup
       - run: espup install
       - run: cargo build --verbose
       - run: cargo test --verbose
