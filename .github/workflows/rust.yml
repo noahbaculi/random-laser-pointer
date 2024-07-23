@@ -20,7 +20,7 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install espup
         run: cargo +stable binstall --no-confirm espup && espup install
-      - uses: Swatinem/rust-cache@v2
+      # - uses: Swatinem/rust-cache@v2
       - name: Cargo Build
         run: source $HOME/export-esp.sh && cargo build --verbose
       - name: Clippy
