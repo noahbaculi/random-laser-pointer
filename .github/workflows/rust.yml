@@ -22,9 +22,9 @@ jobs:
       - run: cargo +stable install espup
       - run: espup install
       # - run: source $HOME/export-esp.sh && cargo +esp build
-      - run: source $HOME/export-esp.sh
-      # - run: cat $HOME/export-esp.sh >> ~/.bashrc
-      - run: cargo +esp build --verbose
+      # - run: source $HOME/export-esp.sh
+      - run: cat $HOME/export-esp.sh >> ~/.bashrc
+      - run: cargo build --verbose
       - run: cargo test --verbose
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
