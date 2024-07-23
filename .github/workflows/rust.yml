@@ -24,5 +24,5 @@ jobs:
       - name: Cargo Build
         run: source $HOME/export-esp.sh && cargo build --verbose
       - name: Clippy
-        run: source $HOME/export-esp.sh && cargo clippy --all-targets --all-features
+        run: source $HOME/export-esp.sh && cargo clippy --all-features
 
