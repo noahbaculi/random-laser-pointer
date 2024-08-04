@@ -38,6 +38,8 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 
 - [The Rust on ESP Book](https://docs.esp-rs.org/book/introduction.html)
 
-## Wiring Diagram
+## Wiring
 
 ![Wiring Diagram](./assets/schematic.svg)
+
+![Wiring Example](./assets/wiring.png)
