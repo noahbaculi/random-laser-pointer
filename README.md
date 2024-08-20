@@ -36,13 +36,15 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 
 ## Hardware
 
-- [ESP32-WROOM-32](https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32_datasheet_en.pdf) (Xtensa architecture)
-- 2 x [SG90 servo motor](/datasheets/SG90_servo_motor.pdf)
+- 1 x [ESP32-WROOM-32](https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32_datasheet_en.pdf) (Xtensa architecture)
 - 1 x 3.3V Laser diode
-- 2 x 10kΩ potentiometer
-- 1 x Latching button
+- 2 x [SG90 servo motor](/datasheets/SG90_servo_motor.pdf) to position the laser
+- 2 x 10kΩ potentiometer to control the servo X and Y range
+- 1 x Latching button to preview the laser area
+- 1 x Toggle switch to control power
+- 1 x USB-C Female connector to connect power
 
-### Wiring
+## Wiring
 
 ![Wiring Diagram](./assets/schematic.svg)
 
