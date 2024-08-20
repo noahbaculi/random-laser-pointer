@@ -34,12 +34,22 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 
 ![ESP32 WROOM Development Board Pinout](./assets/ESP32_WROOM_Development_board_pinout.png)
 
+## Hardware
+
+- [ESP32-WROOM-32](https://www.espressif.com/sites/default/files/documentation/esp32-wroom-32_datasheet_en.pdf) (Xtensa architecture)
+- 2 x [SG90 servo motor](/datasheets/SG90_servo_motor.pdf)
+- 1 x 3.3V Laser diode
+- 2 x 10kΩ potentiometer
+- 1 x Latching button
+
+### Wiring
+
+![Wiring Diagram](./assets/schematic.svg)
+
 ## Rust ESP32 Resources
 
 - [The Rust on ESP Book](https://docs.esp-rs.org/book/introduction.html)
 
-## Wiring
-
-![Wiring Diagram](./assets/schematic.svg)
+## Final Product
 
 ![Wiring Example](./assets/wiring.png)
