@@ -32,7 +32,7 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 | Architecture           | Xtensa       |
 | Chip                   | ESP32-D0WDQ6 |
 
-![[ESP32 WROOM Development Board Pinout.png]]
+![ESP32 WROOM Development Board Pinout](./assets/ESP32_WROOM_Development_board_pinout.png)
 
 ## Rust ESP32 Resources
 
