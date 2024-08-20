@@ -48,7 +48,25 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 
 ![Wiring Diagram](./assets/schematic.svg)
 
-## Rust ESP32 Resources
+## Development Environment
+
+This project is built in a `no_std` environment utilizing the `esp-hal` crate.
+
+- Rust via [rustup](https://rustup.rs/)
+- Install [ESP32 Rust tooling](https://docs.esp-rs.org/book/installation/index.html)
+
+```shell
+cargo install espup
+espup install
+```
+
+- Source environment variables in each shell or in shell profile:
+
+```shell
+. $HOME/export-esp.sh
+```
+
+## Resources
 
 - [The Rust on ESP Book](https://docs.esp-rs.org/book/introduction.html)
 
