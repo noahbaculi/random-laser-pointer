@@ -8,8 +8,6 @@ Random laser pointer station. Embedded Rust
 - Configurable `x` and `y` area of laser movement.
 - Simple USB-C connector for power and programming.
 
-![ESP32 WROOM Development Board Pinout](./datasheets/ESP32_C3_supermini_pinout.jpg)
-
 ## Hardware
 
 - 1 x [ESP32 C3 SuperMini](https://www.espressif.com/en/products/socs/esp32-c3)

@@ -49,15 +49,15 @@ fn main() -> ! {
     esp_println::logger::init_logger_from_env();
 
     // Instantiate Laser Diode
-    let _laser_diode = Output::new(io.pins.gpio13, Level::High);
+    let _laser_diode = Output::new(io.pins.gpio5, Level::High);
     log::info!("Laser Diode On");
 
     // Instantiate pins
-    let pin_for_servo_x = io.pins.gpio4;
-    let pin_for_servo_y = io.pins.gpio5;
-    let pin_for_pot_x = io.pins.gpio33; // ADC pin
-    let pin_for_pot_y = io.pins.gpio32; // ADC pin
-    let pin_for_preview_btn = io.pins.gpio12; // ADC pin
+    let pin_for_servo_x = io.pins.gpio0;
+    let pin_for_servo_y = io.pins.gpio1;
+    let pin_for_pot_x = io.pins.gpio3; // ADC pin
+    let pin_for_pot_y = io.pins.gpio2; // ADC pin
+    let pin_for_preview_btn = io.pins.gpio6; // ADC pin
 
     // Instantiate ADC
     let mut adc_config = AdcConfig::new();
@@ -128,7 +128,7 @@ fn main() -> ! {
         if uptime_min >= ON_DURATION_MIN.into() {
             log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
             delay.delay_millis(100);
-            rtc.sleep_deep(&[&sleep_timer], &mut delay);
+            rtc.sleep_deep(&[&sleep_timer]);
         }
 
         // Check potentiometer values
