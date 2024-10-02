@@ -32,7 +32,7 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 | Architecture           | Xtensa       |
 | Chip                   | ESP32-D0WDQ6 |
 
-![ESP32 WROOM Development Board Pinout](./assets/ESP32_WROOM_Development_board_pinout.png)
+![ESP32 WROOM Development Board Pinout](./datasheets/ESP32_C3_supermini_pinout.jpg)
 
 ## Hardware
 
@@ -43,6 +43,7 @@ I will move forward with the ESP32-WROOM-32 (Xtensa architecture) boards that I 
 - 1 x Latching button to preview the laser area
 - 1 x Toggle switch to control power
 - 1 x USB-C Female connector to connect power
+- 1 x 3D printed case
 
 ## Wiring
 
