@@ -53,10 +53,10 @@ fn main() -> ! {
     log::info!("Laser Diode On");
 
     // Instantiate pins
-    let pin_for_servo_x = io.pins.gpio0;
-    let pin_for_servo_y = io.pins.gpio1;
-    let pin_for_pot_x = io.pins.gpio3; // ADC pin
-    let pin_for_pot_y = io.pins.gpio2; // ADC pin
+    let pin_for_servo_x = io.pins.gpio3;
+    let pin_for_servo_y = io.pins.gpio2;
+    let pin_for_pot_x = io.pins.gpio0; // ADC pin
+    let pin_for_pot_y = io.pins.gpio1; // ADC pin
     let pin_for_preview_btn = io.pins.gpio6; // ADC pin
 
     // Instantiate ADC
