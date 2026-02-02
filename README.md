@@ -56,7 +56,17 @@ espup install
 cargo install espup
 espup install
 ```
+
 ## Final Product
 
-TODO: Add final product image
+<!-- TODO: Final product image -->
 
+## Future work
+
+- [ ] Add 'programmer' support for an external module with a little screen and joystick that can be plugged into the main station to program key settings:
+  - [ ] Speed
+  - [ ] Bounding box
+- [ ] Design ergonomic enclosure for programmer
+- [ ] Upgrade to bigger, more robust, servos
+- [ ] Redesign main enclosure with wall mounting keyholes
+- [ ] Take final product image
