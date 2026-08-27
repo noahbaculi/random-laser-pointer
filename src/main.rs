@@ -161,7 +161,8 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(
         device,
         net_config,
-        mk_static!(StackResources<4>, StackResources::<4>::new()),
+        // 3 http TCP sockets + DHCP UDP + headroom
+        mk_static!(StackResources<8>, StackResources::<8>::new()),
         seed,
     );
 
