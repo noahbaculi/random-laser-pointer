@@ -51,7 +51,7 @@ const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
 const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
 
 // Full-range sweep takes (max_duty - min_duty) / RAMP_COUNTS_PER_SEC seconds
-const RAMP_COUNTS_PER_SEC: f32 = 900.0;
+const RAMP_COUNTS_PER_SEC: f32 = 450.0;
 const SERVO_TICK_MS: u64 = 20;
 // Stop if no keepalive arrives, guards against a lost release packet.
 // Sized to tolerate one lost 120 ms keepalive plus jitter
