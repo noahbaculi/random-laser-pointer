@@ -6,6 +6,7 @@ Random laser pointer station. Embedded Rust
 
 - Laser moves randomly.
 - Configurable `x` and `y` area of laser movement.
+- Manual laser control from a phone over WiFi.
 - Simple USB-C connector for power and programming.
 
 ## Hardware
@@ -24,6 +25,18 @@ Random laser pointer station. Embedded Rust
 ## Wiring
 
 ![Wiring Diagram](./assets/schematic.svg)
+
+## Manual control over WiFi
+
+The firmware starts an open WiFi access point with a DHCP server and serves a web D-pad for driving the laser by hand.
+
+1. Join the `laser-dpad` WiFi network and keep the connection when the phone warns about no internet.
+2. Open <http://192.168.2.1/> (plain `http`, browsers that force `https` will hang).
+3. Hold a direction button to glide the laser. The center tile shows the round-trip time of each command.
+
+- The page keeps one persistent HTTP connection so commands avoid a TCP handshake, and a held button re-sends its direction every 120 ms as a keepalive.
+- The firmware stops all movement if no command arrives for 350 ms, so a lost release packet cannot leave a servo running away.
+- `RAMP_COUNTS_PER_SEC` in `src/main.rs` sets the glide speed.
 
 ## Development Environment
 
