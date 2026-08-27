@@ -4,13 +4,14 @@
 #![deny(clippy::large_stack_frames)]
 
 mod manual;
+mod random;
 mod servo;
 
 use embassy_executor::Spawner;
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::ram;
 use esp_hal::timer::timg::TimerGroup;
@@ -45,5 +46,23 @@ async fn main(spawner: Spawner) -> ! {
 
     let servos = servo::setup(peripherals.LEDC, peripherals.GPIO3, peripherals.GPIO2);
 
-    manual::run(spawner, peripherals.WIFI, servos).await
+    let preview_btn = Input::new(
+        peripherals.GPIO6,
+        InputConfig::default().with_pull(Pull::Up),
+    );
+
+    // Boot-time mode strap: latched (low) selects manual WiFi mode.
+    // Unlatched keeps the button's preview role. Mode exit is a power cycle
+    if preview_btn.is_low() {
+        manual::run(spawner, peripherals.WIFI, servos).await
+    } else {
+        random::run(
+            servos,
+            peripherals.ADC1,
+            peripherals.GPIO0,
+            peripherals.GPIO1,
+            preview_btn,
+        )
+        .await
+    }
 }

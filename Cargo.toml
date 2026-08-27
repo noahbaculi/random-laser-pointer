@@ -41,6 +41,8 @@ esp-rtos = { version = "0.3.0", features = [
     "log-04",
 ] }
 log = "0.4.27"
+nb = "1.1"
+rand = { version = "0.8.5", default-features = false, features = ["small_rng"] }
 static_cell = "2.1.0"
 
 [profile.dev]
