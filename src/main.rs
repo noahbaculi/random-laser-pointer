@@ -3,6 +3,8 @@
 #![deny(clippy::mem_forget)]
 #![deny(clippy::large_stack_frames)]
 
+mod servo;
+
 // THROWAWAY SPIKE: WiFi D-pad latency probe, modern stack edition.
 // ESP32-C3 as an open WiFi access point with a DHCP server, serving a
 // web D-pad. Hold a direction to glide the laser; release to stop.
@@ -24,12 +26,8 @@ use embedded_io_async::Write;
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{DriveMode, Level, Output, OutputConfig};
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::ledc::channel::ChannelIFace;
-use esp_hal::ledc::timer::TimerIFace;
-use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{ram, rng::Rng};
 use esp_radio::wifi::ap::AccessPointConfig;
@@ -45,12 +43,10 @@ macro_rules! mk_static {
         x
     }};
 }
+pub(crate) use mk_static;
 
 const AP_SSID: &str = "laser-dpad";
 const GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 1);
-
-const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
-const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
 
 // Full-range sweep takes (max_duty - min_duty) / RAMP_COUNTS_PER_SEC seconds
 const RAMP_COUNTS_PER_SEC: f32 = 450.0;
@@ -107,41 +103,7 @@ async fn main(spawner: Spawner) -> ! {
     let _laser_diode = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
     log::info!("Laser Diode On");
 
-    // Instantiate PWM infra
-    let ledc = mk_static!(Ledc<'static>, Ledc::new(peripherals.LEDC));
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
-    let pwm_timer = mk_static!(
-        timer::Timer<'static, LowSpeed>,
-        ledc.timer::<LowSpeed>(timer::Number::Timer0)
-    );
-    pwm_timer
-        .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty14Bit,
-            clock_source: timer::LSClockSource::APBClk,
-            frequency: Rate::from_hz(50),
-        })
-        .unwrap();
-    let pwm_timer: &'static timer::Timer<'static, LowSpeed> = pwm_timer;
-
-    let mut servo_x_pwm_channel =
-        ledc.channel::<LowSpeed>(channel::Number::Channel0, peripherals.GPIO3);
-    servo_x_pwm_channel
-        .configure(channel::config::Config {
-            timer: pwm_timer,
-            duty_pct: 0,
-            drive_mode: DriveMode::PushPull,
-        })
-        .unwrap();
-
-    let mut servo_y_pwm_channel =
-        ledc.channel::<LowSpeed>(channel::Number::Channel1, peripherals.GPIO2);
-    servo_y_pwm_channel
-        .configure(channel::config::Config {
-            timer: pwm_timer,
-            duty_pct: 0,
-            drive_mode: DriveMode::PushPull,
-        })
-        .unwrap();
+    let servos = servo::setup(peripherals.LEDC, peripherals.GPIO3, peripherals.GPIO2);
 
     // Bring up WiFi access point
     let ap_config = Config::AccessPoint(AccessPointConfig::default().with_ssid(AP_SSID));
@@ -173,7 +135,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(connection(controller).unwrap());
     spawner.spawn(net_task(runner).unwrap());
     spawner.spawn(run_dhcp(stack).unwrap());
-    spawner.spawn(servo_task(servo_x_pwm_channel, servo_y_pwm_channel).unwrap());
+    spawner.spawn(servo_task(servos).unwrap());
 
     stack.wait_config_up().await;
     log::info!("Join open network `{AP_SSID}`, then open http://{GATEWAY_IP}/");
@@ -311,19 +273,14 @@ fn parse_path(request: &str) -> Option<&str> {
 }
 
 #[embassy_executor::task]
-async fn servo_task(
-    mut x_channel: channel::Channel<'static, LowSpeed>,
-    mut y_channel: channel::Channel<'static, LowSpeed>,
-) {
-    let max_duty = x_channel.max_duty_cycle() as f32;
-    let min = SERVO_MIN_DUTY_PERCENTAGE * max_duty;
-    let max = SERVO_MAX_DUTY_PERCENTAGE * max_duty;
-    let center = min + ((max - min) / 2.0);
-    let mut x_duty = center;
-    let mut y_duty = center;
-    x_channel.set_duty_cycle(x_duty as u16).unwrap();
-    y_channel.set_duty_cycle(y_duty as u16).unwrap();
-    log::info!("Servo task: duty range {min} .. {max}");
+async fn servo_task(servos: servo::Servos) {
+    let servo::Servos {
+        mut x,
+        mut y,
+        bounds,
+    } = servos;
+    let mut x_duty = bounds.center();
+    let mut y_duty = bounds.center();
 
     let mut ticker = Ticker::every(Duration::from_millis(SERVO_TICK_MS));
     loop {
@@ -345,14 +302,14 @@ async fn servo_task(
             Dir::Right => x_duty -= delta,
             Dir::Left => x_duty += delta,
         }
-        x_duty = x_duty.clamp(min, max);
-        y_duty = y_duty.clamp(min, max);
+        x_duty = x_duty.clamp(bounds.min, bounds.max);
+        y_duty = y_duty.clamp(bounds.min, bounds.max);
 
         if x_duty as u16 != prev_x {
-            x_channel.set_duty_cycle(x_duty as u16).unwrap();
+            x.set_duty_cycle(x_duty as u16).unwrap();
         }
         if y_duty as u16 != prev_y {
-            y_channel.set_duty_cycle(y_duty as u16).unwrap();
+            y.set_duty_cycle(y_duty as u16).unwrap();
         }
     }
 }
