@@ -280,12 +280,13 @@ async fn servo_task(
 
         let delta = RAMP_COUNTS_PER_SEC * SERVO_TICK_MS as f32 / 1000.0;
         let (prev_x, prev_y) = (x_duty as u16, y_duty as u16);
+        // Inverted to match the servo mounting orientation
         match dir {
             Dir::Stop => continue,
-            Dir::Up => y_duty += delta,
-            Dir::Down => y_duty -= delta,
-            Dir::Right => x_duty += delta,
-            Dir::Left => x_duty -= delta,
+            Dir::Up => y_duty -= delta,
+            Dir::Down => y_duty += delta,
+            Dir::Right => x_duty -= delta,
+            Dir::Left => x_duty += delta,
         }
         x_duty = x_duty.clamp(min, max);
         y_duty = y_duty.clamp(min, max);
