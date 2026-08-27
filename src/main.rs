@@ -25,13 +25,14 @@ use esp_hal::{
     system::SystemControl,
 };
 use esp_wifi::wifi::utils::create_network_interface;
-use esp_wifi::wifi::{AccessPointConfiguration, AuthMethod, Configuration, WifiApDevice};
+use esp_wifi::wifi::{AccessPointConfiguration, Configuration, WifiApDevice};
 use esp_wifi::wifi_interface::WifiStack;
 use esp_wifi::{current_millis, initialize, EspWifiInitFor};
 use smoltcp::iface::SocketStorage;
 
+// Open network: esp-wifi 0.7 soft-AP WPA2 handshake rejects clients,
+// acceptable exposure for a throwaway probe
 const AP_SSID: &str = "laser-dpad";
-const AP_PASSWORD: &str = "laserlaser";
 
 const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
 const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
@@ -162,8 +163,6 @@ fn main() -> ! {
 
     let ap_config = Configuration::AccessPoint(AccessPointConfiguration {
         ssid: AP_SSID.try_into().unwrap(),
-        auth_method: AuthMethod::WPA2Personal,
-        password: AP_PASSWORD.try_into().unwrap(),
         ..Default::default()
     });
     controller.set_configuration(&ap_config).unwrap();
@@ -186,7 +185,7 @@ fn main() -> ! {
         ))
         .unwrap();
 
-    log::info!("Join `{AP_SSID}` (password `{AP_PASSWORD}`) with static IP 192.168.2.2, gateway 192.168.2.1, then open http://192.168.2.1/");
+    log::info!("Join open network `{AP_SSID}` with static IP 192.168.2.2, gateway 192.168.2.1, then open http://192.168.2.1/");
 
     let mut rx_buffer = [0u8; 1536];
     let mut tx_buffer = [0u8; 4096];
