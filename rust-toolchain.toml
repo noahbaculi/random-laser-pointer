@@ -1,6 +1,4 @@
 [toolchain]
-# Pinned for the spike: esp-wifi 0.7.1 assumes i8 c_char on riscv32,
-# which newer stable Rust changed to u8
-channel = "1.78.0"
+channel = "stable"
 components = ["rust-src"]
 targets = ["riscv32imc-unknown-none-elf"]

@@ -1,44 +1,58 @@
 #![no_std]
 #![no_main]
 
-// THROWAWAY SPIKE: WiFi D-pad latency probe.
-// Brings the ESP32-C3 up as a WiFi access point serving a web D-pad.
-// Hold a direction to glide the laser; release to stop. Measures felt
-// press-to-motion latency for manual servo control over WiFi.
+// THROWAWAY SPIKE: WiFi D-pad latency probe, modern stack edition.
+// ESP32-C3 as an open WiFi access point with a DHCP server, serving a
+// web D-pad. Hold a direction to glide the laser; release to stop.
+// Probes felt press-to-motion latency for manual servo control.
 //
-// No DHCP server: configure the phone with static IP 192.168.2.2,
-// gateway 192.168.2.1, subnet /24, then browse to http://192.168.2.1/
+// Join `laser-dpad`, then open http://192.168.2.1/
 
+use core::cell::Cell;
+use core::net::Ipv4Addr;
+
+use embassy_executor::Spawner;
+use embassy_net::tcp::TcpSocket;
+use embassy_net::{IpListenEndpoint, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use embedded_hal::pwm::SetDutyCycle;
-use embedded_io::{Read, Write};
+use embedded_io_async::Write;
+use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::gpio::OutputPin;
-use esp_hal::ledc::timer::TimerSpeed;
-use esp_hal::ledc::{self, channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::rng::Rng;
-use esp_hal::timer::PeriodicTimer;
-use esp_hal::{
-    clock::ClockControl,
-    gpio::{Io, Level, Output},
-    peripherals::Peripherals,
-    prelude::*,
-    system::SystemControl,
-};
-use esp_wifi::wifi::utils::create_network_interface;
-use esp_wifi::wifi::{AccessPointConfiguration, Configuration, WifiApDevice};
-use esp_wifi::wifi_interface::WifiStack;
-use esp_wifi::{current_millis, initialize, EspWifiInitFor};
-use smoltcp::iface::SocketStorage;
+use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{DriveMode, Level, Output, OutputConfig};
+use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::ledc::channel::ChannelIFace;
+use esp_hal::ledc::timer::TimerIFace;
+use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::time::Rate;
+use esp_hal::timer::timg::TimerGroup;
+use esp_hal::{ram, rng::Rng};
+use esp_radio::wifi::ap::AccessPointConfig;
+use esp_radio::wifi::{Config, ControllerConfig, Interface, WifiController};
 
-// Open network: esp-wifi 0.7 soft-AP WPA2 handshake rejects clients,
-// acceptable exposure for a throwaway probe
+esp_bootloader_esp_idf::esp_app_desc!();
+
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
+
 const AP_SSID: &str = "laser-dpad";
+const GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 1);
 
 const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
 const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
 
 // Full-range sweep takes (max_duty - min_duty) / RAMP_COUNTS_PER_SEC seconds
 const RAMP_COUNTS_PER_SEC: f32 = 900.0;
+const SERVO_TICK_MS: u64 = 20;
 // Stop if no keepalive arrives, guards against a lost release packet
 const DEADMAN_MS: u64 = 500;
 
@@ -51,175 +65,151 @@ enum Dir {
     Right,
 }
 
-struct DpadState {
+#[derive(Clone, Copy)]
+struct Cmd {
     dir: Dir,
-    last_cmd_ms: u64,
-    last_tick_ms: u64,
-    x_duty: f32,
-    y_duty: f32,
-    min_duty: f32,
-    max_duty: f32,
+    at: Instant,
 }
 
-impl DpadState {
-    fn command(&mut self, dir: Dir) {
-        let now = current_millis();
-        if dir != self.dir {
-            log::info!("cmd {:?} at {} ms", dir, now);
+static CMD: Mutex<CriticalSectionRawMutex, Cell<Cmd>> = Mutex::new(Cell::new(Cmd {
+    dir: Dir::Stop,
+    at: Instant::from_ticks(0),
+}));
+
+fn set_command(dir: Dir) {
+    CMD.lock(|c| {
+        if c.get().dir != dir {
+            log::info!("cmd {:?} at {} ms", dir, Instant::now().as_millis());
         }
-        self.dir = dir;
-        self.last_cmd_ms = now;
-    }
+        c.set(Cmd {
+            dir,
+            at: Instant::now(),
+        });
+    });
 }
 
-#[entry]
-fn main() -> ! {
-    let peripherals = Peripherals::take();
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let system = SystemControl::new(peripherals.SYSTEM);
-    let clocks = ClockControl::max(system.clock_control).freeze();
+#[esp_rtos::main]
+async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(config);
 
-    let _laser_diode = Output::new(io.pins.gpio5, Level::High);
+    esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
+    esp_alloc::heap_allocator!(size: 36 * 1024);
+
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+
+    let _laser_diode = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
     log::info!("Laser Diode On");
 
-    let pin_for_servo_x = io.pins.gpio3;
-    let pin_for_servo_y = io.pins.gpio2;
-
     // Instantiate PWM infra
-    let mut ledc_pwm_controller = Ledc::new(peripherals.LEDC, &clocks);
-    ledc_pwm_controller.set_global_slow_clock(LSGlobalClkSource::APBClk);
-    let mut pwm_timer = ledc_pwm_controller.get_timer::<LowSpeed>(timer::Number::Timer0);
+    let ledc = mk_static!(Ledc<'static>, Ledc::new(peripherals.LEDC));
+    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+    let pwm_timer = mk_static!(
+        timer::Timer<'static, LowSpeed>,
+        ledc.timer::<LowSpeed>(timer::Number::Timer0)
+    );
     pwm_timer
         .configure(timer::config::Config {
             duty: timer::config::Duty::Duty14Bit,
             clock_source: timer::LSClockSource::APBClk,
-            frequency: 50.Hz(),
+            frequency: Rate::from_hz(50),
         })
         .unwrap();
+    let pwm_timer: &'static timer::Timer<'static, LowSpeed> = pwm_timer;
 
-    let mut servo_x_pwm_channel =
-        ledc_pwm_controller.get_channel(channel::Number::Channel0, pin_for_servo_x);
+    let mut servo_x_pwm_channel = ledc.channel::<LowSpeed>(channel::Number::Channel0, peripherals.GPIO3);
     servo_x_pwm_channel
         .configure(channel::config::Config {
-            timer: &pwm_timer,
+            timer: pwm_timer,
             duty_pct: 0,
-            pin_config: channel::config::PinConfig::PushPull,
+            drive_mode: DriveMode::PushPull,
         })
         .unwrap();
 
-    let mut servo_y_pwm_channel =
-        ledc_pwm_controller.get_channel(channel::Number::Channel1, pin_for_servo_y);
+    let mut servo_y_pwm_channel = ledc.channel::<LowSpeed>(channel::Number::Channel1, peripherals.GPIO2);
     servo_y_pwm_channel
         .configure(channel::config::Config {
-            timer: &pwm_timer,
+            timer: pwm_timer,
             duty_pct: 0,
-            pin_config: channel::config::PinConfig::PushPull,
+            drive_mode: DriveMode::PushPull,
         })
         .unwrap();
-
-    let pwm_channel_max_duty = servo_x_pwm_channel.max_duty_cycle();
-    let min_duty = SERVO_MIN_DUTY_PERCENTAGE * pwm_channel_max_duty as f32;
-    let max_duty = SERVO_MAX_DUTY_PERCENTAGE * pwm_channel_max_duty as f32;
-    let center_duty = min_duty + ((max_duty - min_duty) / 2.0);
-
-    servo_x_pwm_channel
-        .set_duty_cycle(center_duty as u16)
-        .unwrap();
-    servo_y_pwm_channel
-        .set_duty_cycle(center_duty as u16)
-        .unwrap();
-
-    let mut state = DpadState {
-        dir: Dir::Stop,
-        last_cmd_ms: 0,
-        last_tick_ms: 0,
-        x_duty: center_duty,
-        y_duty: center_duty,
-        min_duty,
-        max_duty,
-    };
 
     // Bring up WiFi access point
-    let wifi_timer = PeriodicTimer::new(
-        esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0, &clocks, None)
-            .timer0
-            .into(),
-    );
-    let init = initialize(
-        EspWifiInitFor::Wifi,
-        wifi_timer,
-        Rng::new(peripherals.RNG),
-        peripherals.RADIO_CLK,
-        &clocks,
+    let ap_config = Config::AccessPoint(AccessPointConfig::default().with_ssid(AP_SSID));
+    let device = Interface::access_point();
+    let controller = WifiController::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(ap_config),
     )
     .unwrap();
+    log::info!("WiFi AP starting");
 
-    let wifi = peripherals.WIFI;
-    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
-    let (iface, device, mut controller, sockets) =
-        create_network_interface(&init, wifi, WifiApDevice, &mut socket_set_entries).unwrap();
-    let mut wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
-
-    let ap_config = Configuration::AccessPoint(AccessPointConfiguration {
-        ssid: AP_SSID.try_into().unwrap(),
-        ..Default::default()
+    let net_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
+        address: Ipv4Cidr::new(GATEWAY_IP, 24),
+        gateway: Some(GATEWAY_IP),
+        dns_servers: Default::default(),
     });
-    controller.set_configuration(&ap_config).unwrap();
-    controller.start().unwrap();
-    log::info!("WiFi AP started: {:?}", controller.is_started());
 
-    wifi_stack
-        .set_iface_configuration(&esp_wifi::wifi::ipv4::Configuration::Client(
-            esp_wifi::wifi::ipv4::ClientConfiguration::Fixed(
-                esp_wifi::wifi::ipv4::ClientSettings {
-                    ip: esp_wifi::wifi::ipv4::Ipv4Addr::new(192, 168, 2, 1),
-                    subnet: esp_wifi::wifi::ipv4::Subnet {
-                        gateway: esp_wifi::wifi::ipv4::Ipv4Addr::new(192, 168, 2, 1),
-                        mask: esp_wifi::wifi::ipv4::Mask(24),
-                    },
-                    dns: None,
-                    secondary_dns: None,
-                },
-            ),
-        ))
-        .unwrap();
+    let rng = Rng::new();
+    let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
-    log::info!("Join open network `{AP_SSID}` with static IP 192.168.2.2, gateway 192.168.2.1, then open http://192.168.2.1/");
+    let (stack, runner) = embassy_net::new(
+        device,
+        net_config,
+        mk_static!(StackResources<4>, StackResources::<4>::new()),
+        seed,
+    );
 
-    let mut rx_buffer = [0u8; 1536];
-    let mut tx_buffer = [0u8; 4096];
-    let mut socket = wifi_stack.get_socket(&mut rx_buffer, &mut tx_buffer);
-    socket.listen(80).unwrap();
+    spawner.spawn(connection(controller).unwrap());
+    spawner.spawn(net_task(runner).unwrap());
+    spawner.spawn(run_dhcp(stack).unwrap());
+    spawner.spawn(servo_task(servo_x_pwm_channel, servo_y_pwm_channel).unwrap());
+
+    stack.wait_config_up().await;
+    log::info!("Join open network `{AP_SSID}`, then open http://{GATEWAY_IP}/");
+
+    let mut rx_buffer = [0; 1536];
+    let mut tx_buffer = [0; 4096];
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    socket.set_timeout(Some(Duration::from_secs(10)));
 
     loop {
-        socket.work();
-        tick_servos(&mut state, &mut servo_x_pwm_channel, &mut servo_y_pwm_channel);
-
-        if !socket.is_open() {
-            socket.listen(80).unwrap();
-        }
-
-        if !socket.is_connected() {
+        let r = socket
+            .accept(IpListenEndpoint {
+                addr: None,
+                port: 80,
+            })
+            .await;
+        if let Err(e) = r {
+            log::warn!("accept error: {:?}", e);
+            socket.abort();
             continue;
         }
 
-        // Read the request, ticking servos while we wait
-        let deadline = current_millis() + 1_000;
         let mut buffer = [0u8; 1024];
         let mut pos = 0;
         let mut complete = false;
-        while current_millis() < deadline {
-            socket.work();
-            tick_servos(&mut state, &mut servo_x_pwm_channel, &mut servo_y_pwm_channel);
-            if pos < buffer.len() {
-                if let Ok(len) = socket.read(&mut buffer[pos..]) {
+        loop {
+            match socket.read(&mut buffer[pos..]).await {
+                Ok(0) => break,
+                Ok(len) => {
                     pos += len;
+                    if buffer[..pos].windows(4).any(|w| w == b"\r\n\r\n") {
+                        complete = true;
+                        break;
+                    }
+                    if pos == buffer.len() {
+                        break;
+                    }
                 }
-            }
-            if buffer[..pos].windows(4).any(|w| w == b"\r\n\r\n") {
-                complete = true;
-                break;
+                Err(e) => {
+                    log::warn!("read error: {:?}", e);
+                    break;
+                }
             }
         }
 
@@ -229,22 +219,28 @@ fn main() -> ! {
                 Some("/") => PAGE.as_bytes(),
                 Some(path) if path.starts_with("/d?dir=") => {
                     match &path[7..] {
-                        "up" => state.command(Dir::Up),
-                        "down" => state.command(Dir::Down),
-                        "left" => state.command(Dir::Left),
-                        "right" => state.command(Dir::Right),
-                        "stop" => state.command(Dir::Stop),
+                        "up" => set_command(Dir::Up),
+                        "down" => set_command(Dir::Down),
+                        "left" => set_command(Dir::Left),
+                        "right" => set_command(Dir::Right),
+                        "stop" => set_command(Dir::Stop),
                         other => log::warn!("Unknown dir: {other}"),
                     }
                     b"HTTP/1.0 204 No Content\r\nConnection: close\r\n\r\n"
                 }
                 _ => b"HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\n",
             };
-            socket.write_all(response).unwrap();
-            socket.flush().unwrap();
+            if let Err(e) = socket.write_all(response).await {
+                log::warn!("write error: {:?}", e);
+            }
+            if let Err(e) = socket.flush().await {
+                log::warn!("flush error: {:?}", e);
+            }
         }
 
         socket.close();
+        _ = socket.flush().await;
+        socket.abort();
     }
 }
 
@@ -257,45 +253,109 @@ fn parse_path(request: &str) -> Option<&str> {
     }
 }
 
-fn tick_servos<S, XO, YO>(
-    state: &mut DpadState,
-    x_channel: &mut ledc::channel::Channel<S, XO>,
-    y_channel: &mut ledc::channel::Channel<S, YO>,
-) where
-    S: TimerSpeed,
-    XO: OutputPin,
-    YO: OutputPin,
-{
-    let now = current_millis();
-    let dt_ms = now.saturating_sub(state.last_tick_ms);
-    if dt_ms == 0 {
-        return;
-    }
-    state.last_tick_ms = now;
+#[embassy_executor::task]
+async fn servo_task(
+    mut x_channel: channel::Channel<'static, LowSpeed>,
+    mut y_channel: channel::Channel<'static, LowSpeed>,
+) {
+    let max_duty = x_channel.max_duty_cycle() as f32;
+    let min = SERVO_MIN_DUTY_PERCENTAGE * max_duty;
+    let max = SERVO_MAX_DUTY_PERCENTAGE * max_duty;
+    let center = min + ((max - min) / 2.0);
+    let mut x_duty = center;
+    let mut y_duty = center;
+    x_channel.set_duty_cycle(x_duty as u16).unwrap();
+    y_channel.set_duty_cycle(y_duty as u16).unwrap();
+    log::info!("Servo task: duty range {min} .. {max}");
 
-    if state.dir != Dir::Stop && now.saturating_sub(state.last_cmd_ms) > DEADMAN_MS {
-        log::warn!("Deadman timeout, stopping");
-        state.dir = Dir::Stop;
-    }
+    let mut ticker = Ticker::every(Duration::from_millis(SERVO_TICK_MS));
+    loop {
+        ticker.next().await;
+        let cmd = CMD.lock(|c| c.get());
+        let dir = if Instant::now() - cmd.at > Duration::from_millis(DEADMAN_MS) {
+            Dir::Stop
+        } else {
+            cmd.dir
+        };
 
-    let delta = RAMP_COUNTS_PER_SEC * dt_ms as f32 / 1000.0;
-    let (prev_x, prev_y) = (state.x_duty as u16, state.y_duty as u16);
-    match state.dir {
-        Dir::Stop => return,
-        Dir::Up => state.y_duty += delta,
-        Dir::Down => state.y_duty -= delta,
-        Dir::Right => state.x_duty += delta,
-        Dir::Left => state.x_duty -= delta,
-    }
-    state.x_duty = state.x_duty.clamp(state.min_duty, state.max_duty);
-    state.y_duty = state.y_duty.clamp(state.min_duty, state.max_duty);
+        let delta = RAMP_COUNTS_PER_SEC * SERVO_TICK_MS as f32 / 1000.0;
+        let (prev_x, prev_y) = (x_duty as u16, y_duty as u16);
+        match dir {
+            Dir::Stop => continue,
+            Dir::Up => y_duty += delta,
+            Dir::Down => y_duty -= delta,
+            Dir::Right => x_duty += delta,
+            Dir::Left => x_duty -= delta,
+        }
+        x_duty = x_duty.clamp(min, max);
+        y_duty = y_duty.clamp(min, max);
 
-    if state.x_duty as u16 != prev_x {
-        x_channel.set_duty_cycle(state.x_duty as u16).unwrap();
+        if x_duty as u16 != prev_x {
+            x_channel.set_duty_cycle(x_duty as u16).unwrap();
+        }
+        if y_duty as u16 != prev_y {
+            y_channel.set_duty_cycle(y_duty as u16).unwrap();
+        }
     }
-    if state.y_duty as u16 != prev_y {
-        y_channel.set_duty_cycle(state.y_duty as u16).unwrap();
+}
+
+#[embassy_executor::task]
+async fn run_dhcp(stack: Stack<'static>) {
+    use core::net::SocketAddrV4;
+
+    use edge_dhcp::io::{self, DEFAULT_SERVER_PORT};
+    use edge_dhcp::server::{Server, ServerOptions};
+    use edge_nal::UdpBind;
+    use edge_nal_embassy::{Udp, UdpBuffers};
+
+    let mut buf = [0u8; 1500];
+    let mut gw_buf = [Ipv4Addr::UNSPECIFIED];
+
+    let buffers = UdpBuffers::<3, 1024, 1024, 10>::new();
+    let unbound_socket = Udp::new(stack, &buffers);
+    let mut bound_socket = unbound_socket
+        .bind(core::net::SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::UNSPECIFIED,
+            DEFAULT_SERVER_PORT,
+        )))
+        .await
+        .unwrap();
+
+    loop {
+        _ = io::server::run(
+            &mut Server::<_, 64>::new_with_et(GATEWAY_IP),
+            &ServerOptions::new(GATEWAY_IP, Some(&mut gw_buf)),
+            &mut bound_socket,
+            &mut buf,
+        )
+        .await
+        .inspect_err(|e| log::warn!("DHCP server error: {e:?}"));
+        Timer::after(Duration::from_millis(500)).await;
     }
+}
+
+#[embassy_executor::task]
+async fn connection(controller: WifiController<'static>) {
+    loop {
+        let ev = controller
+            .wait_for_access_point_connected_event_async()
+            .await;
+        match ev {
+            Ok(esp_radio::wifi::ap::EventInfo::Connected(info)) => {
+                log::info!("Station connected: {:?}", info);
+            }
+            Ok(esp_radio::wifi::ap::EventInfo::Disconnected(info)) => {
+                log::info!("Station disconnected: {:?}", info);
+            }
+            _ => (),
+        }
+        Timer::after(Duration::from_millis(1000)).await
+    }
+}
+
+#[embassy_executor::task]
+async fn net_task(mut runner: Runner<'static, Interface>) {
+    runner.run().await
 }
 
 const PAGE: &str = concat!(
