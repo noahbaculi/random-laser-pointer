@@ -1,0 +1,4 @@
+# Embassy task futures live in the static task pool, not the stack, but the
+# lint measures them as frames; keep the threshold above the largest task
+# future (~14 KB for the http task) so the lint still catches gross growth.
+stack-size-threshold = 16384
