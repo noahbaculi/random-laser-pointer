@@ -1,5 +1,7 @@
 #![no_std]
 #![no_main]
+#![deny(clippy::mem_forget)]
+#![deny(clippy::large_stack_frames)]
 
 // THROWAWAY SPIKE: WiFi D-pad latency probe, modern stack edition.
 // ESP32-C3 as an open WiFi access point with a DHCP server, serving a
@@ -39,7 +41,7 @@ macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
@@ -121,7 +123,8 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap();
     let pwm_timer: &'static timer::Timer<'static, LowSpeed> = pwm_timer;
 
-    let mut servo_x_pwm_channel = ledc.channel::<LowSpeed>(channel::Number::Channel0, peripherals.GPIO3);
+    let mut servo_x_pwm_channel =
+        ledc.channel::<LowSpeed>(channel::Number::Channel0, peripherals.GPIO3);
     servo_x_pwm_channel
         .configure(channel::config::Config {
             timer: pwm_timer,
@@ -130,7 +133,8 @@ async fn main(spawner: Spawner) -> ! {
         })
         .unwrap();
 
-    let mut servo_y_pwm_channel = ledc.channel::<LowSpeed>(channel::Number::Channel1, peripherals.GPIO2);
+    let mut servo_y_pwm_channel =
+        ledc.channel::<LowSpeed>(channel::Number::Channel1, peripherals.GPIO2);
     servo_y_pwm_channel
         .configure(channel::config::Config {
             timer: pwm_timer,

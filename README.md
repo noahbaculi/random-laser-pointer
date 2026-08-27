@@ -42,33 +42,24 @@ The firmware starts an open WiFi access point with a DHCP server and serves a we
 
 This project is built in a `no_std` environment utilizing the `esp-hal` crate.
 
+The ESP32-C3 is RISC-V, so the stock stable toolchain works. `rust-toolchain.toml` pins the channel and installs the `riscv32imc-unknown-none-elf` target and `rust-src` on first build, so the only setup is:
+
 - Rust via [rustup](https://rustup.rs/)
-- Install [ESP32 Rust tooling](https://docs.esp-rs.org/book/installation/index.html)
+- [`espflash`](https://github.com/esp-rs/espflash) to flash and monitor over USB:
 
 ```shell
-cargo install espup
-espup install
+cargo install espflash
 ```
 
-- Source environment variables in each shell or in shell profile:
+Build, flash, and stream serial logs until Ctrl-C (the runner is configured in `.cargo/config.toml`):
 
 ```shell
-. $HOME/export-esp.sh
+cargo run --release
 ```
 
 ## Resources
 
 - [The Rust on ESP Book](https://docs.esp-rs.org/book/introduction.html)
-
-## Development Environment
-
-- Rust via [rustup](https://rustup.rs/)
-- Install [ESP32 Rust tooling](https://docs.esp-rs.org/book/installation/index.html)
-
-```shell
-cargo install espup
-espup install
-```
 
 ## Final Product
 

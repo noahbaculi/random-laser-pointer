@@ -8,3 +8,15 @@ target/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# macOS Finder metadata
+**/.DS_Store
+
+# Editor configuration (.vscode/settings.json stays tracked for rust-analyzer)
+.zed/
+.helix/
+.nvim.lua
+
+# Agent scratch, never committed
+docs/superpowers/
+.superpowers/
