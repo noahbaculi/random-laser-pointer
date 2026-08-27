@@ -53,8 +53,9 @@ const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
 // Full-range sweep takes (max_duty - min_duty) / RAMP_COUNTS_PER_SEC seconds
 const RAMP_COUNTS_PER_SEC: f32 = 900.0;
 const SERVO_TICK_MS: u64 = 20;
-// Stop if no keepalive arrives, guards against a lost release packet
-const DEADMAN_MS: u64 = 500;
+// Stop if no keepalive arrives, guards against a lost release packet.
+// Sized to tolerate one lost 120 ms keepalive plus jitter
+const DEADMAN_MS: u64 = 350;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Dir {
@@ -172,51 +173,63 @@ async fn main(spawner: Spawner) -> ! {
     stack.wait_config_up().await;
     log::info!("Join open network `{AP_SSID}`, then open http://{GATEWAY_IP}/");
 
+    for _ in 0..HTTP_POOL_SIZE {
+        spawner.spawn(http_task(stack).unwrap());
+    }
+
+    loop {
+        Timer::after(Duration::from_secs(3600)).await;
+    }
+}
+
+const HTTP_POOL_SIZE: usize = 3;
+
+// Keep-alive HTTP server: each pooled task holds one persistent
+// connection, so commands avoid a TCP handshake per request and a
+// stop never races a closing socket
+#[embassy_executor::task(pool_size = HTTP_POOL_SIZE)]
+async fn http_task(stack: Stack<'static>) {
     let mut rx_buffer = [0; 1536];
     let mut tx_buffer = [0; 4096];
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     loop {
-        let r = socket
+        if let Err(e) = socket
             .accept(IpListenEndpoint {
                 addr: None,
                 port: 80,
             })
-            .await;
-        if let Err(e) = r {
+            .await
+        {
             log::warn!("accept error: {:?}", e);
             socket.abort();
+            _ = socket.flush().await;
             continue;
         }
 
-        let mut buffer = [0u8; 1024];
-        let mut pos = 0;
-        let mut complete = false;
-        loop {
-            match socket.read(&mut buffer[pos..]).await {
-                Ok(0) => break,
-                Ok(len) => {
-                    pos += len;
-                    if buffer[..pos].windows(4).any(|w| w == b"\r\n\r\n") {
-                        complete = true;
-                        break;
+        'connection: loop {
+            let mut buffer = [0u8; 1024];
+            let mut pos = 0;
+            loop {
+                match socket.read(&mut buffer[pos..]).await {
+                    Ok(0) => break 'connection,
+                    Ok(len) => {
+                        pos += len;
+                        if buffer[..pos].windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                        if pos == buffer.len() {
+                            break 'connection;
+                        }
                     }
-                    if pos == buffer.len() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    log::warn!("read error: {:?}", e);
-                    break;
+                    Err(_) => break 'connection,
                 }
             }
-        }
 
-        if complete {
             let request = unsafe { core::str::from_utf8_unchecked(&buffer[..pos]) };
-            let response: &[u8] = match parse_path(request) {
-                Some("/") => PAGE.as_bytes(),
+            let ok = match parse_path(request) {
+                Some("/") => send_page(&mut socket).await,
                 Some(path) if path.starts_with("/d?dir=") => {
                     match &path[7..] {
                         "up" => set_command(Dir::Up),
@@ -226,21 +239,60 @@ async fn main(spawner: Spawner) -> ! {
                         "stop" => set_command(Dir::Stop),
                         other => log::warn!("Unknown dir: {other}"),
                     }
-                    b"HTTP/1.0 204 No Content\r\nConnection: close\r\n\r\n"
+                    socket
+                        .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                        .await
+                        .is_ok()
                 }
-                _ => b"HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\n",
+                _ => socket
+                    .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                    .await
+                    .is_ok(),
             };
-            if let Err(e) = socket.write_all(response).await {
-                log::warn!("write error: {:?}", e);
-            }
-            if let Err(e) = socket.flush().await {
-                log::warn!("flush error: {:?}", e);
+            if !ok || socket.flush().await.is_err() {
+                break;
             }
         }
 
         socket.close();
         _ = socket.flush().await;
         socket.abort();
+    }
+}
+
+async fn send_page(socket: &mut TcpSocket<'_>) -> bool {
+    use core::fmt::Write as _;
+    let mut header = HeaderBuf {
+        buf: [0u8; 128],
+        pos: 0,
+    };
+    if write!(
+        header,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n",
+        PAGE_BODY.len()
+    )
+    .is_err()
+    {
+        return false;
+    }
+    socket.write_all(&header.buf[..header.pos]).await.is_ok()
+        && socket.write_all(PAGE_BODY.as_bytes()).await.is_ok()
+}
+
+struct HeaderBuf {
+    buf: [u8; 128],
+    pos: usize,
+}
+
+impl core::fmt::Write for HeaderBuf {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        if self.pos + bytes.len() > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buf[self.pos..self.pos + bytes.len()].copy_from_slice(bytes);
+        self.pos += bytes.len();
+        Ok(())
     }
 }
 
@@ -359,9 +411,7 @@ async fn net_task(mut runner: Runner<'static, Interface>) {
     runner.run().await
 }
 
-const PAGE: &str = concat!(
-    "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n",
-    r##"<!DOCTYPE html><html><head>
+const PAGE_BODY: &str = r##"<!DOCTYPE html><html><head>
 <meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no">
 <title>Laser D-pad</title><style>
 body{margin:0;font-family:system-ui;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;touch-action:none;-webkit-user-select:none;user-select:none}
@@ -384,13 +434,12 @@ function show(r){rtts.push(r);if(rtts.length>30)rtts.shift();
 let a=rtts.reduce((x,y)=>x+y,0)/rtts.length;
 document.getElementById('rtt').textContent=r.toFixed(0)+' ms\navg '+a.toFixed(0);}
 function send(d){if(busy){pend=d;return}busy=true;let t=performance.now();
-fetch('/d?dir='+d).then(()=>show(performance.now()-t)).catch(()=>{}).finally(()=>{busy=false;if(pend){let p=pend;pend=null;send(p)}});}
+fetch('/d?dir='+d).then(()=>show(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)}).finally(()=>{busy=false;if(pend!==null){let p=pend;pend=null;send(p)}});}
 function dn(e,d){e.preventDefault();held=d;document.getElementById('st').textContent=d;send(d);
-if(timer)clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},150);}
+if(timer)clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120);}
 function up(e){e.preventDefault();if(!held)return;held=null;if(timer)clearInterval(timer);timer=null;
 document.getElementById('st').textContent='released';pend=null;send('stop');}
 for(const b of document.querySelectorAll('button')){
 b.addEventListener('pointerdown',e=>dn(e,b.dataset.d));
 b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('pointerleave',up);}
-</script></body></html>"##
-);
+</script></body></html>"##;
