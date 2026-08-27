@@ -26,9 +26,18 @@ Random laser pointer station. Embedded Rust
 
 ![Wiring Diagram](./assets/schematic.svg)
 
+## Operating modes
+
+The latching preview button doubles as a boot-time mode switch. The firmware reads it once at startup:
+
+- Unlatched at boot: random mode. The laser walks randomly inside the bounding box set by the two potentiometers, and latching the button previews the box corners. After 10 minutes of runtime the unit deep sleeps for 20 minutes, then wakes and repeats.
+- Latched at boot: manual mode. The firmware starts a WiFi access point and serves a web D-pad, described below. The potentiometers and the button are ignored, and the unit never deep sleeps.
+
+To switch modes, set the button and power cycle.
+
 ## Manual control over WiFi
 
-The firmware starts an open WiFi access point with a DHCP server and serves a web D-pad for driving the laser by hand.
+Booting with the preview button latched starts an open WiFi access point with a DHCP server and serves a web D-pad for driving the laser by hand across the full servo range.
 
 1. Join the `laser-dpad` WiFi network and keep the connection when the phone warns about no internet.
 2. Open <http://192.168.2.1/> (plain `http`, browsers that force `https` will hang).
@@ -36,7 +45,7 @@ The firmware starts an open WiFi access point with a DHCP server and serves a we
 
 - The page keeps one persistent HTTP connection so commands avoid a TCP handshake, and a held button re-sends its direction every 120 ms as a keepalive.
 - The firmware stops all movement if no command arrives for 350 ms, so a lost release packet cannot leave a servo running away.
-- `RAMP_COUNTS_PER_SEC` in `src/main.rs` sets the glide speed.
+- `RAMP_COUNTS_PER_SEC` in `src/manual/mod.rs` sets the glide speed.
 
 ## Development Environment
 
