@@ -6,7 +6,6 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# Spike: WiFi D-pad latency probe on the modern esp-hal 1.x stack
 edge-dhcp = "0.7.0"
 edge-nal = "0.6.0"
 edge-nal-embassy = "0.8.1"
