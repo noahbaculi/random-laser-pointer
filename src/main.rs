@@ -61,6 +61,7 @@ async fn main(spawner: Spawner) -> ! {
             peripherals.ADC1,
             peripherals.GPIO0,
             peripherals.GPIO1,
+            peripherals.LPWR,
             preview_btn,
         )
         .await

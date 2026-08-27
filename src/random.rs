@@ -2,17 +2,21 @@
 //!
 //! The laser walks randomly inside a bounding box sized live by the two
 //! potentiometers. Latching the preview button sweeps the box corners.
+//! After 10 min of uptime the unit deep sleeps for 20 min, and the RTC
+//! timer wakeup reboots it back through the boot-time mode strap.
 
 use core::cmp::Ordering;
 use core::ops::Range;
 
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use embedded_hal::pwm::SetDutyCycle;
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
 use esp_hal::gpio::Input;
 use esp_hal::ledc::{channel, LowSpeed};
-use esp_hal::peripherals::{ADC1, GPIO0, GPIO1};
+use esp_hal::peripherals::{ADC1, GPIO0, GPIO1, LPWR};
 use esp_hal::rng::Rng;
+use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
+use esp_hal::rtc_cntl::Rtc;
 use rand::rngs::SmallRng;
 use rand::{Rng as _, SeedableRng};
 
@@ -25,6 +29,8 @@ const SERVO_MAX_STEP_SLEEP_US: u64 = 15_000;
 const POT_MIN_VALUE: u16 = 0;
 const POT_MAX_VALUE: u16 = 4095;
 const PREVIEW_SERVO_DELAY_MS: u64 = 500;
+const ON_DURATION_MIN: u64 = 10; // Uptime before each deep sleep
+const SLEEP_DURATION_MIN: u64 = 20; // Deep sleep duration per cycle
 
 /// Runs the random walk forever. Never initializes the radio.
 pub async fn run(
@@ -32,6 +38,7 @@ pub async fn run(
     adc1: ADC1<'static>,
     pot_x_pin: GPIO0<'static>,
     pot_y_pin: GPIO1<'static>,
+    lpwr: LPWR<'static>,
     preview_btn: Input<'static>,
 ) -> ! {
     let Servos {
@@ -45,6 +52,10 @@ pub async fn run(
     let mut pot_y = adc_config.enable_pin(pot_y_pin, Attenuation::_11dB);
     let mut adc = Adc::new(adc1, adc_config);
 
+    let mut rtc = Rtc::new(lpwr);
+    let sleep_timer =
+        TimerWakeupSource::new(core::time::Duration::from_secs(SLEEP_DURATION_MIN * 60));
+
     // Hardware-seeded so each boot walks a fresh sequence
     let hw_rng = Rng::new();
     let seed = (hw_rng.random() as u64) << 32 | hw_rng.random() as u64;
@@ -55,6 +66,15 @@ pub async fn run(
 
     log::info!("Starting random walk...");
     loop {
+        let uptime_min = Instant::now().as_secs() / 60;
+        log::info!("--- Uptime = {} min", uptime_min);
+        if uptime_min >= ON_DURATION_MIN {
+            log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
+            // Let the log line drain before the chip powers down
+            Timer::after_millis(100).await;
+            rtc.sleep_deep(&[&sleep_timer]);
+        }
+
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x)).unwrap();
         // Invert potentiometer value to match wired direction
         let x_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_x_value, bounds.min, bounds.max);
