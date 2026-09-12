@@ -18,7 +18,7 @@ use esp_hal::rng::Rng;
 use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
 use esp_hal::rtc_cntl::Rtc;
 use rand::rngs::SmallRng;
-use rand::{Rng as _, SeedableRng};
+use rand::{RngExt as _, SeedableRng};
 
 use crate::servo::Servos;
 
@@ -107,11 +107,11 @@ pub async fn run(
 
         let x_duty = match x_duty_range.is_empty() {
             true => x_duty_range.start,
-            false => rng.gen_range(x_duty_range),
+            false => rng.random_range(x_duty_range),
         };
         let y_duty = match y_duty_range.is_empty() {
             true => y_duty_range.start,
-            false => rng.gen_range(y_duty_range),
+            false => rng.random_range(y_duty_range),
         };
         log::info!(
             "Servo X duty = {:>2} | Servo Y duty = {:>2}",
@@ -123,7 +123,7 @@ pub async fn run(
         move_servo_gradually(&mut y, &mut rng, last_y_duty, y_duty).await;
         last_y_duty = y_duty;
 
-        let sleep_duration = rng.gen_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
+        let sleep_duration = rng.random_range(SERVO_MIN_SLEEP_MS..=SERVO_MAX_SLEEP_MS);
         log::info!("Sleeping for {} ms...", sleep_duration);
         Timer::after_millis(sleep_duration).await;
     }
@@ -177,7 +177,7 @@ async fn move_servo_gradually(
             for duty_value in start_duty..=end_duty {
                 servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
                 Timer::after_micros(
-                    rng.gen_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US),
+                    rng.random_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US),
                 )
                 .await;
             }
@@ -186,7 +186,7 @@ async fn move_servo_gradually(
             for duty_value in (end_duty..=start_duty).rev() {
                 servo_pwm_channel.set_duty_cycle(duty_value).unwrap();
                 Timer::after_micros(
-                    rng.gen_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US),
+                    rng.random_range(SERVO_MIN_STEP_SLEEP_US..=SERVO_MAX_STEP_SLEEP_US),
                 )
                 .await;
             }
