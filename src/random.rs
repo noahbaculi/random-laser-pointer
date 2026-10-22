@@ -15,8 +15,8 @@ use esp_hal::gpio::Input;
 use esp_hal::ledc::{channel, LowSpeed};
 use esp_hal::peripherals::{ADC1, GPIO0, GPIO1, LPWR};
 use esp_hal::rng::Rng;
-use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
-use esp_hal::rtc_cntl::Rtc;
+use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
+use esp_hal::time::{Duration, Instant as HalInstant};
 use rand::rngs::SmallRng;
 use rand::{RngExt as _, SeedableRng};
 
@@ -52,9 +52,7 @@ pub async fn run(
     let mut pot_y = adc_config.enable_pin(pot_y_pin, Attenuation::_11dB);
     let mut adc = Adc::new(adc1, adc_config);
 
-    let mut rtc = Rtc::new(lpwr);
-    let sleep_timer =
-        TimerWakeupSource::new(core::time::Duration::from_secs(SLEEP_DURATION_MIN * 60));
+    let mut low_power = LowPower::new(lpwr);
 
     // Hardware-seeded so each boot walks a fresh sequence
     let hw_rng = Rng::new();
@@ -72,7 +70,10 @@ pub async fn run(
             log::info!("Entering deep sleep for {} min...", SLEEP_DURATION_MIN);
             // Let the log line drain before the chip powers down
             Timer::after_millis(100).await;
-            rtc.sleep_deep(&[&sleep_timer]);
+            low_power.set_wakeup_deadline(
+                HalInstant::now() + Duration::from_minutes(SLEEP_DURATION_MIN),
+            );
+            low_power.sleep_deep(RtcSleepConfig::deep());
         }
 
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x)).unwrap();

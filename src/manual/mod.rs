@@ -70,7 +70,8 @@ fn set_command(dir: Dir) {
 /// Deep sleep never runs in this mode. Pots and the preview button are
 /// ignored after boot.
 pub async fn run(spawner: Spawner, wifi: WIFI<'static>, servos: Servos) -> ! {
-    let ap_config = Config::AccessPoint(AccessPointConfig::default().with_ssid(AP_SSID));
+    let ap_config =
+        Config::AccessPoint(AccessPointConfig::default().with_ssid(AP_SSID.try_into().unwrap()));
     let device = Interface::access_point();
     let controller = WifiController::new(
         wifi,
