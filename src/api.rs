@@ -297,8 +297,9 @@ pub fn write_status(
     };
     write!(
         w,
-        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{},"idle":{idle},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
+        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{},"idle":{idle},"previewing":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
         status.phase_remaining_s,
+        status.previewing,
         status.laser,
         status.x,
         status.y,
@@ -309,6 +310,11 @@ pub fn write_status(
     for (i, p) in settings.presets.iter().enumerate() {
         let sep = if i == 0 { "" } else { "," };
         write!(w, r#"{sep}"{}""#, p.name.as_str())?;
+    }
+    w.write_str(r#"],"counts":["#)?;
+    for (i, p) in settings.presets.iter().enumerate() {
+        let sep = if i == 0 { "" } else { "," };
+        write!(w, "{sep}{}", p.outline.points().len())?;
     }
     w.write_str(r#"],"points":["#)?;
     for (i, p) in settings.outline().points().iter().enumerate() {
@@ -459,7 +465,7 @@ mod tests {
         s.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         let status = Controller::new(0, T, &s, 1).status(0);
-        let expected = r#"{"mode":"random","phase":"active","phase_remaining_s":600,"idle":null,"laser":true,"x":1228,"y":1228,"travel":[491,1966],"preset":0,"names":["Room 1","Room 2","Room 3","Room 4"],"points":[[900,900],[1500,900],[1500,1500]],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}"#;
+        let expected = r#"{"mode":"random","phase":"active","phase_remaining_s":600,"idle":null,"previewing":false,"laser":true,"x":1228,"y":1228,"travel":[491,1966],"preset":0,"names":["Room 1","Room 2","Room 3","Room 4"],"counts":[3,0,0,0],"points":[[900,900],[1500,900],[1500,1500]],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}"#;
         assert_eq!(status_string(&status, &s), expected);
     }
 
@@ -492,6 +498,7 @@ mod tests {
             phase: Some(Phase::Active),
             phase_remaining_s: u32::MAX,
             idle: Some(crate::controller::Idle::NoArea),
+            previewing: true,
             laser: false,
             x: u16::MAX,
             y: u16::MAX,
@@ -696,6 +703,27 @@ mod tests {
             json.contains(r#""phase_remaining_s":600,"idle":"no_area","#),
             "{json}"
         );
+    }
+
+    #[test]
+    fn status_counts_every_room() {
+        let mut s = Settings::defaults(T);
+        s.presets[0].outline =
+            Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
+        s.presets[2].outline = Outline::new(&[pt(1000, 1000); MAX_POINTS]).unwrap();
+        s.presets[3].outline = Outline::new(&[pt(1000, 1000)]).unwrap();
+        let json = status_string(&Controller::new(0, T, &s, 1).status(0), &s);
+        assert!(json.contains(r#""counts":[3,0,16,1]"#), "{json}");
+    }
+
+    #[test]
+    fn status_previewing_true() {
+        let mut st = state();
+        st.settings.presets[0].outline =
+            Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
+        dispatch(Route::Preview, &mut st, 0);
+        let json = status_string(&st.controller.status(0), &st.settings);
+        assert!(json.contains(r#""idle":null,"previewing":true,"#), "{json}");
     }
 
     #[test]

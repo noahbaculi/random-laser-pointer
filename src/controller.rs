@@ -68,6 +68,7 @@ pub struct Status {
     pub phase: Option<Phase>,
     pub phase_remaining_s: u32,
     pub idle: Option<Idle>,
+    pub previewing: bool,
     pub laser: bool,
     pub x: u16,
     pub y: u16,
@@ -234,7 +235,7 @@ impl Controller {
         self.start_glide(Drive::Goto(Line::new(self.here(), to)), now_us);
     }
 
-    /// Switches to Manual and traces the active outline, then holds at its first point.
+    /// Switches to Manual and traces the active outline, then resumes Random from its first point.
     /// Does nothing below 3 points
     pub fn preview(&mut self, now_us: u64, settings: &Settings) {
         let Some(&first) = settings.outline().points().first() else {
@@ -287,6 +288,7 @@ impl Controller {
             phase: random.then_some(self.phase),
             phase_remaining_s: if random { remaining_s as u32 } else { 0 },
             idle: (random && self.idle).then_some(Idle::NoArea),
+            previewing: self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }),
             laser: self.laser,
             x: self.x,
             y: self.y,
@@ -451,6 +453,7 @@ impl Controller {
         }
 
         let delta = settings.manual_speed as u32 * (MANUAL_TICK_US / 1000) as u32;
+        let mut traced = false;
         let p = match self.drive {
             Drive::Dpad => self.nudge(delta),
             Drive::Goto(mut line) => {
@@ -467,6 +470,7 @@ impl Controller {
                 self.drive = Drive::Preview { line, leg };
                 if line.done() {
                     self.next_leg(leg, p, settings);
+                    traced = self.drive == Drive::Dpad;
                 }
                 p
             }
@@ -476,6 +480,10 @@ impl Controller {
             self.manual_y = p.y as u32 * MILLI;
         }
         let (x, y) = (self.move_x(p.x), self.move_y(p.y));
+        if traced {
+            self.set_mode(Mode::Random, now_us, settings);
+            return (x, y, Some(now_us));
+        }
         let next = (self.drive != Drive::Dpad || self.gliding(now_us)).then_some(self.next_tick_us);
         (x, y, next)
     }
@@ -488,7 +496,7 @@ impl Controller {
         n
     }
 
-    /// Heads to the point after `leg`, or holds once back at the first
+    /// Heads to the point after `leg`, or ends the trace once back at the first
     fn next_leg(&mut self, leg: usize, here: Point, settings: &Settings) {
         let points = settings.outline().points();
         let next = leg + 1;
@@ -881,6 +889,19 @@ mod tests {
         }
     }
 
+    // Steps every tick until the preview ends, returning visited points
+    fn trace(c: &mut Controller, s: &Settings, start: u64) -> (u64, Vec<Point>) {
+        let mut now = start;
+        let mut seen = vec![p(c.x, c.y)];
+        while c.status(now).previewing {
+            let next = c.step(now, s).next_us;
+            seen.push(p(c.x, c.y));
+            assert!(seen.len() < 10_000, "preview never ended");
+            now = next.expect("preview stalled");
+        }
+        (now, seen)
+    }
+
     #[test]
     fn reentry_from_outside_then_stays_inside() {
         let s = with_outline(&L);
@@ -1032,7 +1053,7 @@ mod tests {
         let mut c = boot(&s);
         c.preview(S, &s);
         assert_eq!(c.status(S).mode, Mode::Manual);
-        let (_, seen) = glide(&mut c, &s, S);
+        let (now, seen) = trace(&mut c, &s, S);
         let mut want = [tri[0], tri[1], tri[2], tri[0]].into_iter().peekable();
         for q in &seen {
             if want.peek() == Some(q) {
@@ -1041,8 +1062,66 @@ mod tests {
         }
         assert_eq!(want.next(), None, "missed a point");
         assert_eq!(p(c.x, c.y), tri[0]);
-        assert!(c.status(S).laser);
-        assert_eq!(c.target(), None);
+        let st = c.status(now);
+        assert_eq!(st.mode, Mode::Random);
+        assert_eq!(st.phase, Some(Phase::Active));
+        assert!(st.laser);
+    }
+
+    #[test]
+    fn preview_ends_in_random_active() {
+        let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
+        let s = with_outline(&tri);
+        let mut c = boot(&s);
+        c.step(600 * S, &s);
+        assert_eq!(c.status(600 * S).phase, Some(Phase::Rest));
+        c.preview(600 * S, &s);
+        let (now, seen) = trace(&mut c, &s, 600 * S);
+        let mut want = [tri[0], tri[1], tri[2], tri[0]].into_iter().peekable();
+        for q in &seen {
+            if want.peek() == Some(q) {
+                want.next();
+            }
+        }
+        assert_eq!(want.next(), None, "missed a point");
+        let st = c.status(now);
+        assert_eq!(st.mode, Mode::Random);
+        assert_eq!(st.phase, Some(Phase::Active));
+        assert_eq!(st.phase_remaining_s, s.active_min as u32 * 60);
+        assert!(st.laser);
+        assert!(!st.previewing);
+        assert_eq!(p(st.x, st.y), tri[0]);
+    }
+
+    #[test]
+    fn previewing_flag() {
+        let s = with_outline(&[p(800, 800), p(1600, 800), p(1200, 1600)]);
+        let mut c = boot(&s);
+        assert!(!c.status(0).previewing);
+        c.preview(S, &s);
+        assert!(c.status(S).previewing);
+        c.manual(Dir::Up, S);
+        assert!(!c.status(S).previewing);
+        c.preview(2 * S, &s);
+        assert!(c.status(2 * S).previewing);
+        c.set_mode(Mode::Random, 2 * S, &s);
+        assert!(!c.status(2 * S).previewing);
+    }
+
+    #[test]
+    fn mode_random_stops_preview() {
+        let s = with_outline(&[p(800, 800), p(1600, 800), p(1200, 1600)]);
+        let mut c = boot(&s);
+        c.preview(S, &s);
+        let mut now = S;
+        for _ in 0..3 {
+            now = c.step(now, &s).next_us.unwrap();
+        }
+        c.set_mode(Mode::Random, now, &s);
+        let st = c.status(now);
+        assert_eq!(st.mode, Mode::Random);
+        assert!(!st.previewing);
+        assert_eq!(st.phase, Some(Phase::Active));
     }
 
     #[test]
@@ -1163,10 +1242,10 @@ mod tests {
         let s = with_outline(&tri);
         let mut c = boot(&s);
         c.preview(S, &s);
-        let (now, _) = glide(&mut c, &s, S);
+        let (now, _) = trace(&mut c, &s, S);
         assert_eq!(p(c.x, c.y), tri[0]);
         c.preview(now, &s);
-        let (_, seen) = glide(&mut c, &s, now);
+        let (_, seen) = trace(&mut c, &s, now);
         assert!(seen.contains(&tri[1]) && seen.contains(&tri[2]));
         assert_eq!(p(c.x, c.y), tri[0]);
     }
