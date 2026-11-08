@@ -8,16 +8,9 @@ use embassy_sync::signal::Signal;
 use embassy_time::{with_deadline, Instant};
 use embedded_hal::pwm::SetDutyCycle;
 use esp_hal::gpio::{Level, Output};
-use random_laser_pointer::controller::Controller;
-use random_laser_pointer::settings::{Settings, Travel};
+use random_laser_pointer::api::State;
 
 use crate::servo::Servos;
-
-pub struct State {
-    pub controller: Controller,
-    pub settings: Settings,
-    pub travel: Travel,
-}
 
 pub static STATE: Mutex<CriticalSectionRawMutex, RefCell<Option<State>>> =
     Mutex::new(RefCell::new(None));
@@ -25,7 +18,7 @@ pub static STATE: Mutex<CriticalSectionRawMutex, RefCell<Option<State>>> =
 /// Raised on any mode, D-pad, or settings change so the controller steps now
 pub static WAKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// Raised by `/set` to schedule a flash save
+/// Raised by `/set` and `/points` to schedule a flash save
 pub static SETTINGS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Runs `f` on the shared state. `None` before `main` fills it

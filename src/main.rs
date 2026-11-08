@@ -21,7 +21,7 @@ use esp_hal::timer::timg::TimerGroup;
 use random_laser_pointer::controller::Controller;
 use random_laser_pointer::settings::Settings;
 
-use crate::control::State;
+use random_laser_pointer::api::State;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

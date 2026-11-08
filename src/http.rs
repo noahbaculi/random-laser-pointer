@@ -6,7 +6,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{IpListenEndpoint, Stack};
 use embassy_time::Duration;
 use embedded_io_async::Write;
-use random_laser_pointer::api::{self, Route, STATUS_BUF_LEN};
+use random_laser_pointer::api::{self, Reply, Route, STATUS_BUF_LEN};
 
 use crate::control::{now_us, with_state, SETTINGS_CHANGED, WAKE};
 
@@ -14,6 +14,7 @@ pub const HTTP_POOL_SIZE: usize = 3;
 
 const NO_CONTENT: &[u8] = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
 const BAD_REQUEST: &[u8] = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+const CONFLICT: &[u8] = b"HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\n\r\n";
 const NOT_FOUND: &[u8] = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
 
 // Keep-alive HTTP server: each pooled task holds one persistent
@@ -75,38 +76,25 @@ pub async fn http_task(stack: Stack<'static>) {
 }
 
 async fn respond(socket: &mut TcpSocket<'_>, route: Route<'_>) -> bool {
-    let reply: &[u8] = match route {
-        Route::Page => return send(socket, "text/html", PAGE_BODY.as_bytes()).await,
-        Route::Status => return send_status(socket).await,
-        Route::Dpad(dir) => {
-            with_state(|s| s.controller.manual(dir, now_us()));
-            WAKE.signal(());
-            NO_CONTENT
-        }
-        Route::Mode(mode) => {
-            with_state(|s| s.controller.set_mode(mode, now_us(), &s.settings));
-            log::info!("mode {:?}", mode);
-            WAKE.signal(());
-            NO_CONTENT
-        }
-        Route::Set(query) => {
-            let applied = with_state(|s| api::apply_set(query, &mut s.settings, s.travel));
-            match applied {
-                Some(Ok(())) => {
-                    log::info!("set {query}");
-                    WAKE.signal(());
-                    SETTINGS_CHANGED.signal(());
-                    return send_status(socket).await;
-                }
-                Some(Err(e)) => {
-                    log::warn!("set {query}: {:?}", e);
-                    BAD_REQUEST
-                }
-                None => BAD_REQUEST,
-            }
-        }
-        Route::BadRequest => BAD_REQUEST,
-        Route::NotFound => NOT_FOUND,
+    let Some(out) = with_state(|s| api::dispatch(route, s, now_us())) else {
+        return socket.write_all(BAD_REQUEST).await.is_ok();
+    };
+    if !matches!(route, Route::Status | Route::Page | Route::Dpad(_)) {
+        log::info!("{route:?} -> {:?}", out.reply);
+    }
+    if out.wake {
+        WAKE.signal(());
+    }
+    if out.settings_changed {
+        SETTINGS_CHANGED.signal(());
+    }
+    let reply: &[u8] = match out.reply {
+        Reply::Page => return send(socket, "text/html", PAGE_BODY.as_bytes()).await,
+        Reply::Status => return send_status(socket).await,
+        Reply::NoContent => NO_CONTENT,
+        Reply::BadRequest => BAD_REQUEST,
+        Reply::Conflict => CONFLICT,
+        Reply::NotFound => NOT_FOUND,
     };
     socket.write_all(reply).await.is_ok()
 }
