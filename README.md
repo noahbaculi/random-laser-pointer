@@ -5,7 +5,7 @@
 Random laser pointer station. Embedded Rust
 
 - Laser moves randomly.
-- Configurable `x` and `y` area of laser movement.
+- Configurable room outlines that bound the laser's movement.
 - Manual laser control from a phone over WiFi.
 - Simple USB-C connector for power and programming.
 
@@ -22,9 +22,11 @@ Random laser pointer station. Embedded Rust
 
 ## Wiring
 
-![Wiring Diagram](./assets/schematic.svg)
+![Wiring Diagram](./docs/wiring/generated/overview.svg)
 
-> Note: the schematic still shows the two potentiometers and the preview button. The firmware no longer reads them, and the schematic update is tracked in Future work.
+Source in [`docs/wiring/overview.yaml`](docs/wiring/overview.yaml), regenerate with `mise run wireviz`.
+
+> Note: the servo VCC comes from the 3V3 pin, carried over from the original schematic and not yet checked on the build. SG90s are rated for 4.8 to 6 V.
 
 ## Operating modes
 
@@ -111,9 +113,9 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 ## Future work
 
 - [x] Phone UI rebuilt around the settings API: 8-way D-pad, mode switch, settings sheet, room picker and outline editor
-- [ ] Configurable on/off schedule replacing the fixed active/rest cycle
-- [ ] Update the schematic to drop the potentiometers and preview button
+- [x] Replace the schematic with a WireViz diagram without the potentiometers and preview button
 - [ ] Bench checklist, once a board is on hand:
+  - [ ] Confirm the servo VCC source, and move the servos to 5V if they run on 3V3
   - [ ] Boots into Random with the AP up, the page loads, the D-pad takes over, and the mode buttons work
   - [ ] Rest phase with a shortened `rest_min`: laser off, servos hold, and the page still reachable
   - [ ] Random-mode stepping doesn't starve the network (D-pad latency comparable to the old manual mode)
@@ -125,5 +127,5 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
   - [ ] Live outline in the point editor keeps up at 150 ms polling
   - [ ] Page loads quickly from flash
 - [ ] Upgrade to bigger, more robust, servos
-- [ ] Redesign main enclosure with wall mounting keyholes
+- [x] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image

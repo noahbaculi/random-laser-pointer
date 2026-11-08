@@ -1,0 +1,93 @@
+## Whole-station wiring source.
+## Panel USB-C through the power switch to the ESP32-C3 SuperMini, plus the
+## laser diode and both servos on the board's header pins.
+
+connectors:
+  J_USBC:
+    type: USB-C receptacle
+    subtype: panel mount, power and programming
+    pinlabels: [5V, D-, D+, GND]
+
+  S_PWR:
+    type: Toggle switch
+    subtype: SPDT, NC pin unused
+    pinlabels: ["ON", COM, NC]
+
+  J_USB_LEAD:
+    type: USB lead
+    subtype: plugs into the SuperMini's onboard USB port
+    pinlabels: [5V, D-, D+, GND]
+
+  U_ESP:
+    type: ESP32-C3 SuperMini
+    subtype: header pins in use
+    pinlabels: [GPIO5, GPIO3, GPIO2, 3V3, GND]
+
+  U_LASER:
+    type: Laser diode
+    subtype: 3.3V module
+    pinlabels: [+, "-"]
+
+  M_X:
+    type: SG90 servo
+    subtype: X axis (pan)
+    pinlabels: [PWM, VCC, GND]
+
+  M_Y:
+    type: SG90 servo
+    subtype: Y axis (tilt)
+    pinlabels: [PWM, VCC, GND]
+
+cables:
+  W_PANEL_5V:
+    wirecount: 1
+    colors: [RD]
+
+  W_SWITCHED_5V:
+    wirecount: 1
+    colors: [RD]
+
+  W_USB_DATA:
+    wirecount: 3
+    colors: [WH, GN, BK]
+
+  W_LASER:
+    wirecount: 2
+    colors: [RD, BK]
+
+  W_SERVO_X:
+    wirecount: 3
+    colors: [OG, RD, BN]
+    notes: VCC from 3V3 as in the 2024 schematic, unverified. SG90 is rated 4.8 to 6 V
+
+  W_SERVO_Y:
+    wirecount: 3
+    colors: [OG, RD, BN]
+    notes: VCC from 3V3 as in the 2024 schematic, unverified. SG90 is rated 4.8 to 6 V
+
+connections:
+  # Panel 5V switched through COM to ON, then into the USB lead.
+  - - J_USBC: [1]
+    - W_PANEL_5V: [1]
+    - S_PWR: [2]
+
+  - - S_PWR: [1]
+    - W_SWITCHED_5V: [1]
+    - J_USB_LEAD: [1]
+
+  # Data and ground pass straight through for programming.
+  - - J_USBC: [2, 3, 4]
+    - W_USB_DATA: [1, 2, 3]
+    - J_USB_LEAD: [2, 3, 4]
+
+  - - U_ESP: [1, 5]
+    - W_LASER: [1, 2]
+    - U_LASER: [1, 2]
+
+  - - U_ESP: [2, 4, 5]
+    - W_SERVO_X: [1, 2, 3]
+    - M_X: [1, 2, 3]
+
+  - - U_ESP: [3, 4, 5]
+    - W_SERVO_Y: [1, 2, 3]
+    - M_Y: [1, 2, 3]

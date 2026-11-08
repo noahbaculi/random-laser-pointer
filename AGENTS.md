@@ -61,6 +61,14 @@ cargo build --release
 espflash save-image --chip esp32c3 --partition-table partitions.csv target/riscv32imc-unknown-none-elf/release/random-laser-pointer /tmp/image.bin
 ```
 
+## Wiring diagrams
+
+The WireViz source and the generated SVG and PNG live under `docs/wiring/`. Regenerate with `mise run wireviz`. It needs `uv` (from `mise.toml`) and `brew install graphviz` for the `dot` binary.
+
+- WireViz models every connection as connector-cable-connector. Two cables cannot chain, and two connectors cannot connect directly.
+- `->` in any string breaks Graphviz's HTML label parser. Write "to" instead.
+- Validate without rendering via `uvx --from wireviz wireviz -f g -o /tmp/wv-check docs/wiring/overview.yaml`. The `g` format emits GraphViz source only and does not need `dot`.
+
 ## Runtime conventions
 
 - `no_std` with an `esp-alloc` heap; `main.rs` sets up two `heap_allocator!` regions before starting the scheduler.

@@ -1,0 +1,6 @@
+[tools]
+uv = "latest"
+
+[tasks.wireviz]
+description = "Regenerate WireViz SVG and PNG from docs/wiring/overview.yaml"
+run = "uvx --from wireviz wireviz -f sp -o docs/wiring/generated docs/wiring/overview.yaml"
