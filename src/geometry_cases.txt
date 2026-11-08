@@ -1,0 +1,29 @@
+# Self-crossing cases shared by geometry.rs and the page: expected|x,y;x,y;...
+# Square
+ok|0,0;100,0;100,100;0,100
+# L-shape
+ok|0,0;100,0;100,100;50,100;50,50;0,50
+# Collinear vertex on a straight side
+ok|0,0;50,0;100,0;100,100;0,100
+# Fewer than 3 points
+ok|
+ok|10,10
+ok|0,0;100,0
+# 16-point star
+ok|300,200;237,215;271,271;215,237;200,300;185,237;129,271;163,215;100,200;163,185;129,129;185,163;200,100;215,163;271,129;237,185
+# Bow-tie
+cross|0,0;100,100;100,0;0,100
+# Zero-area triangle
+cross|0,0;50,0;100,0
+# Consecutive duplicate
+cross|0,0;100,0;100,0;0,100
+# Last equals first
+cross|0,0;100,0;100,100;0,0
+# Vertex touching a non-adjacent edge
+cross|0,0;100,0;100,100;0,100;0,60;100,50
+# Repeated non-consecutive vertex
+cross|0,0;100,0;50,50;100,100;0,100;50,50
+# Spike folding back along its own edge
+cross|0,0;100,0;100,100;100,50
+# Non-adjacent collinear overlap
+cross|0,50;100,50;100,100;30,100;30,50;20,50;20,0;0,0

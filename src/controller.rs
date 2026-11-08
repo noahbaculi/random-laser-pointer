@@ -3,11 +3,14 @@
 use rand::rngs::SmallRng;
 use rand::{RngExt as _, SeedableRng};
 
+use crate::geometry::{bbox, contains, Point};
 use crate::settings::{Settings, Travel};
 
 pub const MANUAL_TICK_US: u64 = 20_000;
 // Tolerates one lost 120 ms keepalive plus jitter
 pub const DEADMAN_US: u64 = 350_000;
+/// Random target picks per move before dwelling instead
+pub const TARGET_TRIES: u32 = 32;
 
 const US_PER_MIN: u64 = 60_000_000;
 // Keeps a zero dwell on a fixed point from spinning the controller task
@@ -220,11 +223,13 @@ impl Controller {
         loop {
             match self.walk {
                 Walk::Dwell { until_us } if now_us >= until_us => {
-                    let a = settings.area();
-                    self.walk = Walk::MovingX {
-                        x: self.rng.random_range(a.x_min..=a.x_max),
-                        y: self.rng.random_range(a.y_min..=a.y_max),
-                    };
+                    match self.pick_target(settings) {
+                        Some(t) => self.walk = Walk::MovingX { x: t.x, y: t.y },
+                        None => {
+                            self.dwell(now_us, settings);
+                            return (None, None);
+                        }
+                    }
                 }
                 Walk::Dwell { until_us } => {
                     self.walk_at_us = until_us;
@@ -237,12 +242,7 @@ impl Controller {
                     return (self.move_x(next), None);
                 }
                 Walk::MovingY { y } if self.y == y => {
-                    let dwell_ms = self
-                        .rng
-                        .random_range(settings.dwell_min_ms..=settings.dwell_max_ms);
-                    let until_us = now_us + (dwell_ms as u64 * 1000).max(MIN_DWELL_US);
-                    self.walk = Walk::Dwell { until_us };
-                    self.walk_at_us = until_us;
+                    self.dwell(now_us, settings);
                     return (None, None);
                 }
                 Walk::MovingY { y } => {
@@ -252,6 +252,28 @@ impl Controller {
                 }
             }
         }
+    }
+
+    fn dwell(&mut self, now_us: u64, settings: &Settings) {
+        let dwell_ms = self
+            .rng
+            .random_range(settings.dwell_min_ms..=settings.dwell_max_ms);
+        let until_us = now_us + (dwell_ms as u64 * 1000).max(MIN_DWELL_US);
+        self.walk = Walk::Dwell { until_us };
+        self.walk_at_us = until_us;
+    }
+
+    /// Returns a random point inside the active outline, by rejection within its bounding box
+    fn pick_target(&mut self, settings: &Settings) -> Option<Point> {
+        let outline = settings.outline().points();
+        let (lo, hi) = bbox(outline)?;
+        (0..TARGET_TRIES).find_map(|_| {
+            let p = Point {
+                x: self.rng.random_range(lo.x..=hi.x),
+                y: self.rng.random_range(lo.y..=hi.y),
+            };
+            contains(outline, p).then_some(p)
+        })
     }
 
     fn glide_us(&mut self, settings: &Settings) -> u64 {
@@ -332,6 +354,7 @@ fn toward(from: u16, to: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::Outline;
 
     const T: Travel = Travel {
         min: 491,
@@ -340,8 +363,19 @@ mod tests {
     const S: u64 = 1_000_000;
     const MS: u64 = 1_000;
 
+    fn p(x: u16, y: u16) -> Point {
+        Point { x, y }
+    }
+
+    fn square(lo: u16, hi: u16) -> Outline {
+        Outline::new(&[p(lo, lo), p(hi, lo), p(hi, hi), p(lo, hi)]).unwrap()
+    }
+
+    // Defaults with room 0 set to the middle half of travel
     fn settings() -> Settings {
-        Settings::defaults(T)
+        let mut s = Settings::defaults(T);
+        s.presets[0].outline = square(859, 1598);
+        s
     }
 
     fn boot(s: &Settings) -> Controller {
@@ -517,7 +551,7 @@ mod tests {
             t += 20 * MS;
         }
         assert_eq!(c.status(t).x, 1966);
-        assert!(c.status(t).x > s.area().x_max);
+        assert!(c.status(t).x > bbox(s.outline().points()).unwrap().1.x);
     }
 
     #[test]
@@ -573,17 +607,13 @@ mod tests {
     #[test]
     fn targets_stay_inside_area() {
         let s = short_dwell();
-        let a = s.area();
         let mut c = boot(&s);
         let log = drive(&mut c, &s, 0, 2000);
         let xs: Vec<u16> = log.iter().filter_map(|(_, o)| o.x).collect();
         let ys: Vec<u16> = log.iter().filter_map(|(_, o)| o.y).collect();
         assert!(xs.len() > 100 && ys.len() > 100);
-        for x in xs.iter().skip_while(|x| !(a.x_min..=a.x_max).contains(x)) {
-            assert!((a.x_min..=a.x_max).contains(x), "x {x}");
-        }
-        for y in ys.iter().skip_while(|y| !(a.y_min..=a.y_max).contains(y)) {
-            assert!((a.y_min..=a.y_max).contains(y), "y {y}");
+        for v in xs.iter().chain(&ys) {
+            assert!((859..=1598).contains(v), "{v}");
         }
     }
 
@@ -661,13 +691,7 @@ mod tests {
     #[test]
     fn next_target_uses_new_area() {
         let mut s = short_dwell();
-        let new = crate::settings::Area {
-            x_min: 500,
-            x_max: 600,
-            y_min: 500,
-            y_max: 600,
-        };
-        s.presets[1].area = new;
+        s.presets[1].outline = square(500, 600);
         let mut c = boot(&s);
         let mut now = 0;
         // Run until mid X move
@@ -699,12 +723,12 @@ mod tests {
             match c.walk {
                 Walk::Dwell { .. } => dwelled = true,
                 Walk::MovingX { x, y } if dwelled => {
-                    assert!((new.x_min..=new.x_max).contains(&x));
-                    assert!((new.y_min..=new.y_max).contains(&y));
+                    assert!((500..=600).contains(&x));
+                    assert!((500..=600).contains(&y));
                     break;
                 }
                 Walk::MovingY { y } if dwelled => {
-                    assert!((new.y_min..=new.y_max).contains(&y));
+                    assert!((500..=600).contains(&y));
                     break;
                 }
                 _ => {}
@@ -713,13 +737,14 @@ mod tests {
     }
 
     #[test]
-    fn degenerate_area_is_fixed_point() {
+    fn tiny_outline_stays_put() {
         let mut s = short_dwell();
-        s.presets[0].area.x_min = 1000;
-        s.presets[0].area.x_max = 1000;
+        s.presets[0].outline =
+            Outline::new(&[p(1000, 1000), p(1001, 1000), p(1000, 1001)]).unwrap();
         let mut c = boot(&s);
-        drive(&mut c, &s, 0, 3000);
-        assert_eq!(c.x, 1000);
+        let log = drive(&mut c, &s, 0, 3000);
+        assert!(log.iter().all(|(_, o)| o.next_us.is_some()));
+        assert!((1000..=1001).contains(&c.x) && (1000..=1001).contains(&c.y));
     }
 
     #[test]
@@ -756,12 +781,8 @@ mod tests {
     #[test]
     fn fixed_point_zero_dwell_never_spins() {
         let mut s = settings();
-        s.presets[0].area = crate::settings::Area {
-            x_min: 1000,
-            x_max: 1000,
-            y_min: 1000,
-            y_max: 1000,
-        };
+        s.presets[0].outline =
+            Outline::new(&[p(1000, 1000), p(1001, 1000), p(1000, 1001)]).unwrap();
         s.dwell_min_ms = 0;
         s.dwell_max_ms = 0;
         let mut c = boot(&s);

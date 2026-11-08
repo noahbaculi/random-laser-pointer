@@ -3,7 +3,7 @@
 use core::fmt::Write;
 
 use crate::controller::{Dir, Mode, Phase, Status};
-use crate::settings::{Area, Name, Settings, Travel, NAME_MAX_LEN, PRESET_COUNT};
+use crate::settings::{Name, Settings, Travel, NAME_MAX_LEN, PRESET_COUNT};
 
 // Fits four 16-char names with every field at its type max
 pub const STATUS_BUF_LEN: usize = 1024;
@@ -70,13 +70,8 @@ pub fn apply_set(query: &str, settings: &mut Settings, travel: Travel) -> Result
         let v: u32 = value.parse().map_err(|_| SetError::BadValue)?;
         // Out-of-range values saturate here and clamp below
         let v16 = v.min(u16::MAX as u32) as u16;
-        let area: &mut Area = &mut s.presets[s.preset as usize].area;
         match key {
             "preset" => s.preset = v.min(PRESET_COUNT as u32 - 1) as u8,
-            "x_min" => area.x_min = v16,
-            "x_max" => area.x_max = v16,
-            "y_min" => area.y_min = v16,
-            "y_max" => area.y_max = v16,
             "glide_min_us" => s.glide_min_us = v,
             "glide_max_us" => s.glide_max_us = v,
             "dwell_min_ms" => s.dwell_min_ms = v,
@@ -132,7 +127,7 @@ pub fn write_status(
     };
     write!(
         w,
-        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"presets":["#,
+        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
         status.phase_remaining_s,
         status.laser,
         status.x,
@@ -142,17 +137,13 @@ pub fn write_status(
         settings.preset,
     )?;
     for (i, p) in settings.presets.iter().enumerate() {
-        let a = p.area;
-        write!(
-            w,
-            r#"{}{{"name":"{}","x_min":{},"x_max":{},"y_min":{},"y_max":{}}}"#,
-            if i == 0 { "" } else { "," },
-            p.name.as_str(),
-            a.x_min,
-            a.x_max,
-            a.y_min,
-            a.y_max,
-        )?;
+        let sep = if i == 0 { "" } else { "," };
+        write!(w, r#"{sep}"{}""#, p.name.as_str())?;
+    }
+    w.write_str(r#"],"points":["#)?;
+    for (i, p) in settings.outline().points().iter().enumerate() {
+        let sep = if i == 0 { "" } else { "," };
+        write!(w, "{sep}[{},{}]", p.x, p.y)?;
     }
     write!(
         w,
@@ -171,6 +162,8 @@ pub fn write_status(
 mod tests {
     use super::*;
     use crate::controller::Controller;
+    use crate::geometry::Point;
+    use crate::settings::{Outline, MAX_POINTS};
 
     const T: Travel = Travel {
         min: 491,
@@ -212,12 +205,20 @@ mod tests {
 
     #[test]
     fn set_preset_then_edit() {
-        let (r, s) = apply("preset=2&name=Bed%20room&x_min=900");
+        let (r, s) = apply("preset=2&name=Bed%20room");
         assert_eq!(r, Ok(()));
         assert_eq!(s.preset, 2);
         assert_eq!(s.presets[2].name.as_str(), "Bed room");
-        assert_eq!(s.presets[2].area.x_min, 900);
         assert_eq!(s.presets[0], Settings::defaults(T).presets[0]);
+    }
+
+    #[test]
+    fn set_rejects_rectangle_keys() {
+        for q in ["x_min=900", "x_max=900", "y_min=900", "y_max=900"] {
+            let (r, s) = apply(q);
+            assert_eq!(r, Err(SetError::UnknownKey), "{q}");
+            assert_eq!(s, Settings::defaults(T));
+        }
     }
 
     #[test]
@@ -278,24 +279,17 @@ mod tests {
         out
     }
 
+    fn pt(x: u16, y: u16) -> Point {
+        Point { x, y }
+    }
+
     #[test]
     fn status_json_exact() {
-        let s = Settings::defaults(T);
+        let mut s = Settings::defaults(T);
+        s.presets[0].outline =
+            Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         let status = Controller::new(0, T, &s, 1).status(0);
-        let preset = |n| {
-            format!(r#"{{"name":"Room {n}","x_min":859,"x_max":1598,"y_min":859,"y_max":1598}}"#)
-        };
-        let expected = format!(
-            concat!(
-                r#"{{"mode":"random","phase":"active","phase_remaining_s":600,"laser":true,"x":1228,"y":1228,"travel":[491,1966],"preset":0,"presets":["#,
-                "{},{},{},{}",
-                r#"],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}}"#
-            ),
-            preset(1),
-            preset(2),
-            preset(3),
-            preset(4)
-        );
+        let expected = r#"{"mode":"random","phase":"active","phase_remaining_s":600,"laser":true,"x":1228,"y":1228,"travel":[491,1966],"preset":0,"names":["Room 1","Room 2","Room 3","Room 4"],"points":[[900,900],[1500,900],[1500,1500]],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}"#;
         assert_eq!(status_string(&status, &s), expected);
     }
 
@@ -313,12 +307,7 @@ mod tests {
         let mut s = Settings::defaults(T);
         for p in &mut s.presets {
             p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
-            p.area = Area {
-                x_min: u16::MAX,
-                x_max: u16::MAX,
-                y_min: u16::MAX,
-                y_max: u16::MAX,
-            };
+            p.outline = Outline::new(&[pt(u16::MAX, u16::MAX); MAX_POINTS]).unwrap();
         }
         s.glide_min_us = u32::MAX;
         s.glide_max_us = u32::MAX;
@@ -327,7 +316,7 @@ mod tests {
         s.manual_speed = u16::MAX;
         s.active_min = u16::MAX;
         s.rest_min = u16::MAX;
-        s.preset = u8::MAX;
+        s.preset = 3;
         let status = Status {
             mode: Mode::Manual,
             phase: Some(Phase::Active),
@@ -343,5 +332,16 @@ mod tests {
         let mut out = String::new();
         write_status(&mut out, &status, &s, travel).unwrap();
         assert!(out.len() <= STATUS_BUF_LEN, "{}", out.len());
+    }
+
+    #[test]
+    fn status_fits_buffer_at_travel_max() {
+        let mut s = Settings::defaults(T);
+        for p in &mut s.presets {
+            p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
+            p.outline = Outline::new(&[pt(1966, 1966); MAX_POINTS]).unwrap();
+        }
+        let status = Controller::new(0, T, &s, 1).status(0);
+        assert!(status_string(&status, &s).len() < STATUS_BUF_LEN);
     }
 }

@@ -1,5 +1,7 @@
 //! Runtime settings, room presets, and their valid ranges.
 
+use crate::geometry::Point;
+
 /// Servo duty limits in PWM counts
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Travel {
@@ -13,13 +15,32 @@ impl Travel {
     }
 }
 
-/// Random-walk bounding box in duty counts
+pub const MAX_POINTS: usize = 16;
+
+/// Room outline of up to `MAX_POINTS` duty-count points
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Area {
-    pub x_min: u16,
-    pub x_max: u16,
-    pub y_min: u16,
-    pub y_max: u16,
+pub struct Outline {
+    points: [Point; MAX_POINTS],
+    len: u8,
+}
+
+impl Outline {
+    pub const EMPTY: Outline = Outline {
+        points: [Point { x: 0, y: 0 }; MAX_POINTS],
+        len: 0,
+    };
+
+    /// Returns `None` above `MAX_POINTS` points
+    pub fn new(points: &[Point]) -> Option<Outline> {
+        let mut o = Outline::EMPTY;
+        o.points.get_mut(..points.len())?.copy_from_slice(points);
+        o.len = points.len() as u8;
+        Some(o)
+    }
+
+    pub fn points(&self) -> &[Point] {
+        &self.points[..self.len as usize]
+    }
 }
 
 pub const NAME_MAX_LEN: usize = 16;
@@ -52,11 +73,11 @@ impl Name {
     }
 }
 
-/// Named room with its own bounding box
+/// Named room with its own outline
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Preset {
     pub name: Name,
-    pub area: Area,
+    pub outline: Outline,
 }
 
 pub const PRESET_COUNT: usize = 4;
@@ -80,19 +101,12 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Returns defaults with every preset covering the middle half of `travel`
-    pub fn defaults(travel: Travel) -> Self {
-        let quarter = (travel.max - travel.min) / 4;
-        let area = Area {
-            x_min: travel.min + quarter,
-            x_max: travel.max - quarter,
-            y_min: travel.min + quarter,
-            y_max: travel.max - quarter,
-        };
+    /// Returns defaults with every room's outline empty
+    pub fn defaults(_travel: Travel) -> Self {
         Settings {
             presets: DEFAULT_NAMES.map(|n| Preset {
                 name: Name::new(n).unwrap(),
-                area,
+                outline: Outline::EMPTY,
             }),
             preset: 0,
             glide_min_us: 1000,
@@ -109,9 +123,11 @@ impl Settings {
     pub fn clamp(&mut self, travel: Travel) {
         self.preset = self.preset.min(PRESET_COUNT as u8 - 1);
         for p in &mut self.presets {
-            let a = &mut p.area;
-            (a.x_min, a.x_max) = ordered(a.x_min, a.x_max, travel.min, travel.max);
-            (a.y_min, a.y_max) = ordered(a.y_min, a.y_max, travel.min, travel.max);
+            let len = p.outline.len as usize;
+            for pt in &mut p.outline.points[..len] {
+                pt.x = pt.x.clamp(travel.min, travel.max);
+                pt.y = pt.y.clamp(travel.min, travel.max);
+            }
         }
         (self.glide_min_us, self.glide_max_us) =
             ordered(self.glide_min_us, self.glide_max_us, 100, 50_000);
@@ -122,9 +138,9 @@ impl Settings {
         self.rest_min = self.rest_min.min(240);
     }
 
-    /// Returns the active preset's area
-    pub fn area(&self) -> Area {
-        self.presets[self.preset as usize].area
+    /// Returns the active room's outline
+    pub fn outline(&self) -> &Outline {
+        &self.presets[self.preset as usize].outline
     }
 }
 
@@ -142,12 +158,10 @@ mod tests {
         min: 491,
         max: 1966,
     };
-    const DEFAULT_AREA: Area = Area {
-        x_min: 859,
-        x_max: 1598,
-        y_min: 859,
-        y_max: 1598,
-    };
+
+    fn p(x: u16, y: u16) -> Point {
+        Point { x, y }
+    }
 
     #[test]
     fn defaults_match_spec() {
@@ -155,7 +169,7 @@ mod tests {
         assert_eq!(s.preset, 0);
         for (i, p) in s.presets.iter().enumerate() {
             assert_eq!(p.name.as_str(), format!("Room {}", i + 1));
-            assert_eq!(p.area, DEFAULT_AREA);
+            assert_eq!(p.outline, Outline::EMPTY);
         }
         assert_eq!((s.glide_min_us, s.glide_max_us), (1000, 15000));
         assert_eq!((s.dwell_min_ms, s.dwell_max_ms), (900, 2000));
@@ -185,24 +199,26 @@ mod tests {
     }
 
     #[test]
-    fn clamp_area_to_travel() {
-        let mut s = Settings::defaults(T);
-        s.presets[0].area.x_min = 0;
-        s.presets[0].area.y_max = 4000;
-        s.clamp(T);
-        assert_eq!(s.presets[0].area.x_min, 491);
-        assert_eq!(s.presets[0].area.y_max, 1966);
+    fn defaults_have_empty_outlines() {
+        let s = Settings::defaults(T);
+        assert!(s.presets.iter().all(|p| p.outline.points().is_empty()));
     }
 
     #[test]
-    fn clamp_swaps_reversed_area() {
+    fn outline_rejects_more_than_16() {
+        let pts = [p(500, 500); 17];
+        assert!(Outline::new(&pts).is_none());
+        assert_eq!(Outline::new(&pts[..16]).unwrap().points().len(), 16);
+    }
+
+    #[test]
+    fn clamp_moves_points_into_travel() {
         let mut s = Settings::defaults(T);
-        s.presets[1].area.x_min = 1500;
-        s.presets[1].area.x_max = 900;
+        s.presets[0].outline = Outline::new(&[p(0, 4000), p(1000, 1000)]).unwrap();
         s.clamp(T);
         assert_eq!(
-            (s.presets[1].area.x_min, s.presets[1].area.x_max),
-            (900, 1500)
+            s.presets[0].outline.points(),
+            &[p(491, 1966), p(1000, 1000)]
         );
     }
 
@@ -242,16 +258,11 @@ mod tests {
     }
 
     #[test]
-    fn area_follows_active_preset() {
+    fn outline_follows_active_preset() {
         let mut s = Settings::defaults(T);
-        let a = Area {
-            x_min: 600,
-            x_max: 700,
-            y_min: 800,
-            y_max: 900,
-        };
-        s.presets[2].area = a;
+        let o = Outline::new(&[p(600, 800), p(700, 800), p(700, 900)]).unwrap();
+        s.presets[2].outline = o;
         s.preset = 2;
-        assert_eq!(s.area(), a);
+        assert_eq!(*s.outline(), o);
     }
 }
