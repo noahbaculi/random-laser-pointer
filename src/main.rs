@@ -3,17 +3,24 @@
 #![deny(clippy::mem_forget)]
 #![deny(clippy::large_stack_frames)]
 
-mod manual;
-mod random;
+mod control;
+mod http;
+mod net;
 mod servo;
 
 use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::ram;
+use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
+use random_laser_pointer::controller::Controller;
+use random_laser_pointer::settings::Settings;
+
+use crate::control::State;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -39,29 +46,30 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    let _laser_diode = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
-    log::info!("Laser Diode On");
-
+    let laser = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
     let servos = servo::setup(peripherals.LEDC, peripherals.GPIO3, peripherals.GPIO2);
+    let travel = servos.travel;
+    let settings = Settings::defaults(travel);
 
-    let preview_btn = Input::new(
-        peripherals.GPIO6,
-        InputConfig::default().with_pull(Pull::Up),
-    );
+    let rng = Rng::new();
+    let seed = || (rng.random() as u64) << 32 | rng.random() as u64;
+    let controller = Controller::new(control::now_us(), travel, &settings, seed());
+    control::STATE.lock(|s| {
+        s.replace(Some(State {
+            controller,
+            settings,
+            travel,
+        }))
+    });
+    spawner.spawn(control::controller_task(servos, laser).unwrap());
+    log::info!("Random mode");
 
-    // Boot-time mode strap: latched (low) selects manual WiFi mode.
-    // Unlatched keeps the button's preview role. Mode exit is a power cycle
-    if preview_btn.is_low() {
-        manual::run(spawner, peripherals.WIFI, servos).await
-    } else {
-        random::run(
-            servos,
-            peripherals.ADC1,
-            peripherals.GPIO0,
-            peripherals.GPIO1,
-            peripherals.LPWR,
-            preview_btn,
-        )
-        .await
+    let stack = net::start(spawner, peripherals.WIFI, seed()).await;
+    for _ in 0..http::HTTP_POOL_SIZE {
+        spawner.spawn(http::http_task(stack).unwrap());
+    }
+
+    loop {
+        Timer::after(Duration::from_secs(3600)).await;
     }
 }

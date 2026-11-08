@@ -14,8 +14,6 @@ Random laser pointer station. Embedded Rust
 - 1 x [ESP32 C3 SuperMini](https://www.espressif.com/en/products/socs/esp32-c3)
 - 1 x 3.3V Laser diode
 - 2 x [SG90 servo motor](/datasheets/SG90_servo_motor.pdf) to position the laser
-- 2 x 10kΩ potentiometer to control the servo X and Y range
-- 1 x Latching button to preview the laser area
 - 1 x Toggle switch to control power
 - 1 x USB-C Female connector for power and programming
 - 1 x 3D printed case
@@ -26,26 +24,43 @@ Random laser pointer station. Embedded Rust
 
 ![Wiring Diagram](./assets/schematic.svg)
 
+> Note: the schematic still shows the two potentiometers and the preview button. The firmware no longer reads them, and the schematic update is tracked in Future work.
+
 ## Operating modes
 
-The latching preview button doubles as a boot-time mode switch. The firmware reads it once at startup:
+The station boots into Random with the `laser-dpad` access point and web page always up. Switch modes from the page at any time:
 
-- Unlatched at boot: random mode. The laser walks randomly inside the bounding box set by the two potentiometers, and latching the button previews the box corners. After 10 minutes of runtime the unit deep sleeps for 20 minutes, then wakes and repeats.
-- Latched at boot: manual mode. The firmware starts a WiFi access point and serves a web D-pad, described below. The potentiometers and the button are ignored, and the unit never deep sleeps.
+| Mode | Laser | Servos |
+|------|-------|--------|
+| Random, active | on | random walk inside the room preset's box |
+| Random, rest | off | hold position |
+| Manual | on | D-pad glide across full servo travel |
+| Off | off | hold position |
 
-To switch modes, set the button and power cycle.
+- Random alternates 10 minutes active with 20 minutes rest. Entering Random from another mode restarts at the start of an active phase.
+- Any D-pad press switches to Manual. Leaving Manual takes a mode button.
 
 ## Manual control over WiFi
 
-Booting with the preview button latched starts an open WiFi access point with a DHCP server and serves a web D-pad for driving the laser by hand across the full servo range.
+The station runs an open WiFi access point with a DHCP server and serves a page with three mode buttons and a D-pad.
 
 1. Join the `laser-dpad` WiFi network and keep the connection when the phone warns about no internet.
 2. Open <http://192.168.2.1/> (plain `http`, browsers that force `https` will hang).
-3. Hold a direction button to glide the laser. The center tile shows the round-trip time of each command.
+3. Tap Random, Manual, or Off. Hold a direction button to glide the laser. The center tile shows the round-trip time of each command.
 
 - The page keeps one persistent HTTP connection so commands avoid a TCP handshake, and a held button re-sends its direction every 120 ms as a keepalive.
 - The firmware stops all movement if no command arrives for 350 ms, so a lost release packet cannot leave a servo running away.
-- `RAMP_COUNTS_PER_SEC` in `src/manual/mod.rs` sets the glide speed.
+
+The page polls `GET /status` for the current mode. The same API takes every tuning value and four named room presets:
+
+```shell
+curl 'http://192.168.2.1/status'                                  # mode, phase, position, all settings as JSON
+curl 'http://192.168.2.1/mode?m=off'                              # random, manual, or off
+curl 'http://192.168.2.1/set?preset=1&name=Bedroom&x_min=900'     # switch preset, then edit its name and box
+curl 'http://192.168.2.1/set?manual_speed=600&rest_min=0'         # rest_min=0 disables the rest phase
+```
+
+`/set` keys: `preset`, `name`, `x_min`, `x_max`, `y_min`, `y_max`, `glide_min_us`, `glide_max_us`, `dwell_min_ms`, `dwell_max_ms`, `manual_speed`, `active_min`, `rest_min`. Out-of-range values clamp and reversed min/max pairs swap. An unknown key or unparsable value applies nothing and answers 400.
 
 ## Development Environment
 
@@ -76,10 +91,16 @@ cargo run --release
 
 ## Future work
 
-- [ ] Add 'programmer' support for an external module with a little screen and joystick that can be plugged into the main station to program key settings:
-  - [ ] Speed
-  - [ ] Bounding box
-- [ ] Design ergonomic enclosure for programmer
+- [ ] Phone UI rebuilt around the settings API: D-pad, laser toggle, random start/stop and speed, room preset picker and box editor
+- [ ] Configurable on/off schedule replacing the fixed active/rest cycle
+- [ ] Update the schematic to drop the potentiometers and preview button
+- [ ] Bench checklist, once a board is on hand:
+  - [ ] Boots into Random with the AP up, the page loads, the D-pad takes over, and the mode buttons work
+  - [ ] Rest phase with a shortened `rest_min`: laser off, servos hold, and the page still reachable
+  - [ ] Random-mode stepping doesn't starve the network (D-pad latency comparable to the old manual mode)
+  - [ ] Heap and stack fit with WiFi and the controller running together
+  - [ ] Settings and the active preset survive a power cycle and a `cargo run` reflash
+  - [ ] Settings save during Manual causes at most a brief glide stop
 - [ ] Upgrade to bigger, more robust, servos
 - [ ] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image
