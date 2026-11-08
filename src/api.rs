@@ -600,6 +600,13 @@ mod tests {
     }
 
     #[test]
+    fn points_duplicate_pair_refused() {
+        let (r, s) = points("r=0&p=900,900;900,900", 0);
+        assert_eq!(r, Err(PointsError::Crossing));
+        assert_eq!(s, Settings::defaults(T));
+    }
+
+    #[test]
     fn points_bad_value() {
         for q in [
             "r=0&p=1,x",

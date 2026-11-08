@@ -95,7 +95,9 @@ svg.sketch{width:100%;max-height:34vh;background:var(--card);border-radius:12px;
 // geometry:start
 // Mirrors geometry::self_crossing in src/geometry.rs, checked by tests/page_geometry.mjs
 function selfCrossing(pts){
-const n=pts.length;if(n<3)return false;
+const n=pts.length;
+if(n===2)return pts[0][0]===pts[1][0]&&pts[0][1]===pts[1][1];
+if(n<3)return false;
 const sub=(a,b)=>[a[0]-b[0],a[1]-b[1]];
 const cross=(a,b)=>a[0]*b[1]-a[1]*b[0];
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
