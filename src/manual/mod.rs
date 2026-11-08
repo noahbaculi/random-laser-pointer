@@ -119,10 +119,11 @@ async fn servo_task(servos: Servos) {
     let Servos {
         mut x,
         mut y,
-        bounds,
+        travel,
     } = servos;
-    let mut x_duty = bounds.center();
-    let mut y_duty = bounds.center();
+    let (min_duty, max_duty) = (travel.min as f32, travel.max as f32);
+    let mut x_duty = travel.center() as f32;
+    let mut y_duty = travel.center() as f32;
 
     let mut ticker = Ticker::every(Duration::from_millis(SERVO_TICK_MS));
     loop {
@@ -144,8 +145,8 @@ async fn servo_task(servos: Servos) {
             Dir::Right => x_duty -= delta,
             Dir::Left => x_duty += delta,
         }
-        x_duty = x_duty.clamp(bounds.min, bounds.max);
-        y_duty = y_duty.clamp(bounds.min, bounds.max);
+        x_duty = x_duty.clamp(min_duty, max_duty);
+        y_duty = y_duty.clamp(min_duty, max_duty);
 
         if x_duty as u16 != prev_x {
             x.set_duty_cycle(x_duty as u16).unwrap();

@@ -44,8 +44,9 @@ pub async fn run(
     let Servos {
         mut x,
         mut y,
-        bounds,
+        travel,
     } = servos;
+    let (min_duty, max_duty) = (travel.min as f32, travel.max as f32);
 
     let mut adc_config = AdcConfig::new();
     let mut pot_x = adc_config.enable_pin(pot_x_pin, Attenuation::_11dB);
@@ -59,8 +60,8 @@ pub async fn run(
     let seed = (hw_rng.random() as u64) << 32 | hw_rng.random() as u64;
     let mut rng = SmallRng::seed_from_u64(seed);
 
-    let mut last_x_duty = bounds.center() as u16;
-    let mut last_y_duty = bounds.center() as u16;
+    let mut last_x_duty = travel.center();
+    let mut last_y_duty = travel.center();
 
     log::info!("Starting random walk...");
     loop {
@@ -78,7 +79,7 @@ pub async fn run(
 
         let pot_x_value: u16 = nb::block!(adc.read_oneshot(&mut pot_x)).unwrap();
         // Invert potentiometer value to match wired direction
-        let x_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_x_value, bounds.min, bounds.max);
+        let x_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_x_value, min_duty, max_duty);
         log::info!(
             "Potentiometer X = {:4} => Duty range = {:?}",
             pot_x_value,
@@ -86,7 +87,7 @@ pub async fn run(
         );
         let pot_y_value: u16 = nb::block!(adc.read_oneshot(&mut pot_y)).unwrap();
         // Invert potentiometer value to match wired direction
-        let y_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_y_value, bounds.min, bounds.max);
+        let y_duty_range = pot_to_servo_duty(POT_MAX_VALUE - pot_y_value, min_duty, max_duty);
         log::info!(
             "Potentiometer Y = {:4} => Duty range = {:?}",
             pot_y_value,

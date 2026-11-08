@@ -5,45 +5,75 @@ authors = ["Noah Baculi <noahbaculi@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[[bin]]
+name = "random-laser-pointer"
+path = "src/main.rs"
+required-features = ["firmware"]
+test = false
+
+[features]
+default = ["firmware"]
+firmware = [
+    "dep:edge-dhcp",
+    "dep:edge-nal",
+    "dep:edge-nal-embassy",
+    "dep:embassy-executor",
+    "dep:embassy-net",
+    "dep:embassy-sync",
+    "dep:embassy-time",
+    "dep:embedded-hal",
+    "dep:embedded-io-async",
+    "dep:esp-alloc",
+    "dep:esp-backtrace",
+    "dep:esp-bootloader-esp-idf",
+    "dep:esp-hal",
+    "dep:esp-println",
+    "dep:esp-radio",
+    "dep:esp-rtos",
+    "dep:log",
+    "dep:nb",
+    "dep:static_cell",
+]
+
 [dependencies]
-edge-dhcp = "0.8.0"
-edge-nal = "0.7.0"
-edge-nal-embassy = "0.9.0"
-embassy-executor = "0.10.0"
+edge-dhcp = { version = "0.8.0", optional = true }
+edge-nal = { version = "0.7.0", optional = true }
+edge-nal-embassy = { version = "0.9.0", optional = true }
+embassy-executor = { version = "0.10.0", optional = true }
 embassy-net = { version = "0.9.1", features = [
     "dhcpv4",
     "medium-ethernet",
     "tcp",
     "udp",
-] }
-embassy-sync = "0.8.0"
-embassy-time = "0.5.1"
-embedded-hal = "1.0.0"
-embedded-io-async = "0.7"
-esp-alloc = { version = "0.11.0", features = ["esp32c3"] }
+], optional = true }
+embassy-sync = { version = "0.8.0", optional = true }
+embassy-time = { version = "0.5.1", optional = true }
+embedded-hal = { version = "1.0.0", optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+esp-alloc = { version = "0.11.0", features = ["esp32c3"], optional = true }
 esp-backtrace = { version = "0.20.0", features = [
     "esp32c3",
     "panic-handler",
     "println",
-] }
-esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32c3"] }
-esp-hal = { version = "~1.2.2", features = ["esp32c3", "log-04", "unstable"] }
-esp-println = { version = "0.18.0", features = ["esp32c3", "log-04"] }
+], optional = true }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32c3"], optional = true }
+esp-hal = { version = "~1.2.2", features = ["esp32c3", "log-04", "unstable"], optional = true }
+esp-println = { version = "0.18.0", features = ["esp32c3", "log-04"], optional = true }
 esp-radio = { version = "1.0.0-beta.1", features = [
     "esp32c3",
     "log-04",
     "wifi",
-] }
+], optional = true }
 esp-rtos = { version = "0.4.0", features = [
     "esp32c3",
     "esp-radio",
     "embassy",
     "log-04",
-] }
-log = "0.4.34"
-nb = "1.1"
+], optional = true }
+log = { version = "0.4.34", optional = true }
+nb = { version = "1.1", optional = true }
 rand = { version = "0.10.2", default-features = false }
-static_cell = "2.1.1"
+static_cell = { version = "2.1.1", optional = true }
 
 [profile.dev]
 # Rust debug is too slow.

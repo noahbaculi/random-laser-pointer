@@ -8,30 +8,19 @@ use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::peripherals::{GPIO2, GPIO3, LEDC};
 use esp_hal::time::Rate;
 
+use random_laser_pointer::settings::Travel;
+
 use crate::mk_static;
 
 // 3-12% duty at 50 Hz spans full servo travel
 pub const SERVO_MIN_DUTY_PERCENTAGE: f32 = 0.03;
 pub const SERVO_MAX_DUTY_PERCENTAGE: f32 = 0.12;
 
-/// Servo duty limits in PWM counts
-#[derive(Clone, Copy)]
-pub struct DutyBounds {
-    pub min: f32,
-    pub max: f32,
-}
-
-impl DutyBounds {
-    pub fn center(&self) -> f32 {
-        self.min + ((self.max - self.min) / 2.0)
-    }
-}
-
-/// Both servo PWM channels and their shared duty bounds
+/// Both servo PWM channels and their shared travel
 pub struct Servos {
     pub x: channel::Channel<'static, LowSpeed>,
     pub y: channel::Channel<'static, LowSpeed>,
-    pub bounds: DutyBounds,
+    pub travel: Travel,
 }
 
 /// Configures LEDC (low speed, 50 Hz, 14-bit) and centers both servos.
@@ -68,13 +57,13 @@ pub fn setup(ledc: LEDC<'static>, x_pin: GPIO3<'static>, y_pin: GPIO2<'static>) 
     .unwrap();
 
     let max_duty = x.max_duty_cycle() as f32;
-    let bounds = DutyBounds {
-        min: SERVO_MIN_DUTY_PERCENTAGE * max_duty,
-        max: SERVO_MAX_DUTY_PERCENTAGE * max_duty,
+    let travel = Travel {
+        min: (SERVO_MIN_DUTY_PERCENTAGE * max_duty) as u16,
+        max: (SERVO_MAX_DUTY_PERCENTAGE * max_duty) as u16,
     };
-    x.set_duty_cycle(bounds.center() as u16).unwrap();
-    y.set_duty_cycle(bounds.center() as u16).unwrap();
-    log::info!("Servo duty range {} .. {}", bounds.min, bounds.max);
+    x.set_duty_cycle(travel.center()).unwrap();
+    y.set_duty_cycle(travel.center()).unwrap();
+    log::info!("Servo duty range {} .. {}", travel.min, travel.max);
 
-    Servos { x, y, bounds }
+    Servos { x, y, travel }
 }

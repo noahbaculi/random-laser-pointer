@@ -38,3 +38,19 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
+
+  host-tests:
+    name: Host Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          toolchain: stable
+      - name: Enable caching
+        uses: Swatinem/rust-cache@v2
+      - name: Run host tests
+        run: cargo test --target x86_64-unknown-linux-gnu --no-default-features --lib

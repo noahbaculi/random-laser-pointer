@@ -16,6 +16,14 @@ cargo fmt --all -- --check
 cargo clippy --all-features --workspace -- -D warnings
 ```
 
+Run the host unit tests for the `no_std` library (`settings` and the other pure modules in `src/lib.rs`). They need no board:
+
+```shell
+cargo test --target aarch64-apple-darwin --no-default-features --lib
+```
+
+`--no-default-features` drops the `firmware` feature and its `esp-*` and `embassy-*` dependencies. CI runs the same command on `x86_64-unknown-linux-gnu`.
+
 Flash a connected board and stream serial logs:
 
 ```shell
