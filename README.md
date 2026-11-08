@@ -47,8 +47,10 @@ The station boots into Random with the `laser-dpad` access point and web page al
 The station runs an open WiFi access point with DHCP and a captive DNS, and serves one page for steering, modes, rooms, and tuning.
 
 1. Join the `laser-dpad` WiFi network. The page opens in the sign-in sheet, or at <http://laser.pointer/> (plain `http`, browsers that force `https` will hang).
-2. Hold any of the 8 D-pad directions to glide the laser. Sliding a held finger onto another button changes direction. The center tile shows the round-trip time of each command.
-3. Tap Random, Manual, or Off, or tap the room name to switch rooms. The gear opens glide, pause, phase, and manual speed settings plus the room list.
+2. Tap Manual and hold any of the 8 D-pad directions to glide the laser. Sliding a held finger onto another button changes direction. The center tile shows connection quality (OK, Weak, Offline).
+3. Tap Random, Manual, or Off. Under Random, pick a room from the room row and change it with Edit outline. The gear holds Random speed, pause at each spot, play and rest times, and D-pad speed.
+
+- The header dot turns red and a banner shows when the phone loses the station. Mode buttons only highlight a mode the station confirmed.
 
 - The page keeps one persistent HTTP connection so commands avoid a TCP handshake, and a held button re-sends its direction every 120 ms as a keepalive.
 - The firmware stops all movement if no command arrives for 350 ms, so a lost release packet cannot leave a servo running away.
@@ -58,8 +60,10 @@ The station runs an open WiFi access point with DHCP and a captive DNS, and serv
 
 Each of the four rooms is a name and an outline of up to 16 points, aimed with the laser. Random picks targets inside the outline and travels in straight lines that stay inside it. A room with fewer than 3 points holds Random with the laser off until a third point is saved.
 
-- Opening a room in the editor makes it the active room. Opening a point jumps the laser there, steer it with the D-pad, then Save point here.
-- The would-be outline turns red and Save is disabled if it crosses itself.
+- Edit outline opens the active room. Opening a point jumps the laser there in Manual. Steer it with the D-pad (Fine aim slows it down), then Save point N here.
+- Leaving a moved point asks to save it, and deleting a point asks to confirm.
+- The would-be outline turns red and Save is disabled if it crosses itself or lands on another point.
+- Leaving the outline editor returns the station to Random.
 - Preview traces the outline once, then Random resumes from the first point. Tapping a mode button stops it.
 
 ### API
@@ -114,6 +118,7 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 ## Future work
 
 - [x] Phone UI rebuilt around the settings API: 8-way D-pad, mode switch, settings sheet, room picker and outline editor
+- [x] Phone UI fixes: confirmed modes, connection state, per-mode home screen, save and delete confirmations, plain settings
 - [x] Replace the schematic with a WireViz diagram without the potentiometers and preview button
 - [ ] Bench checklist, once a board is on hand:
   - [ ] Confirm the servo VCC source, and move the servos to 5V if they run on 3V3
@@ -127,6 +132,9 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
   - [ ] `laser.pointer` resolves on the phone
   - [ ] Live outline in the point editor keeps up at 150 ms polling
   - [ ] Page loads quickly from flash
+  - [ ] Fine aim places a point precisely on the wall
+  - [ ] Offline banner shows when the phone leaves laser-dpad and clears on rejoin
+  - [ ] In-page dialogs work in the iOS captive sign-in sheet
 - [ ] Upgrade to bigger, more robust, servos
 - [x] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image

@@ -1,95 +1,159 @@
-<!DOCTYPE html><html><head>
+<!DOCTYPE html><html lang=en><head>
 <meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Laser</title><style>
-:root{--bg:#111;--card:#1e1e1e;--btn:#2c2c2e;--fg:#eee;--dim:#8e8e93;--on:#0a84ff;--bad:#ff453a}
+:root{--bg:#1a1625;--card:#2c2540;--sketch:#221d30;--line:#3a3150;--fg:#f3effa;--dim:#a99fc0;--on:#b48cff;--ink:#1a1625;--ok:#30d158;--warn:#ffb35c;--bad:#ff6b6b}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
-body{font-family:system-ui;background:var(--bg);color:var(--fg);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-button{font:inherit;color:inherit;border:0;border-radius:12px;background:var(--btn);padding:10px 14px;touch-action:manipulation}
-button:disabled{opacity:.35}
-.screen{position:fixed;inset:0;display:flex;flex-direction:column;padding:max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom));background:var(--bg)}
+body{font-family:system-ui,sans-serif;font-size:16px;background:var(--bg);color:var(--fg);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;border:0;border-radius:14px;background:var(--card);min-height:44px;padding:10px 14px;touch-action:manipulation;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid var(--on);outline-offset:2px}
 .hidden{display:none!important}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;gap:8px;padding:max(8px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom));background:var(--bg)}
 header{display:flex;align-items:center;gap:8px;min-height:44px}
-header .title{flex:1;text-align:left;font-size:18px;font-weight:600;background:none;padding:8px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-header .icon{font-size:22px;background:none;padding:8px 10px}
-.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;margin:8px 0}
-.seg button{flex:1;background:none;padding:10px 0}
-.seg button.on{background:var(--on)}
-.pad{display:grid;grid-template-columns:repeat(3,min(27vw,96px));grid-auto-rows:min(27vw,96px);gap:8px;justify-content:center;touch-action:none}
-.pad button{font-size:30px;touch-action:none}
-.pad button.held{background:var(--on)}
-.rtt{display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:var(--dim);white-space:pre;font-variant-numeric:tabular-nums}
-#home .pad{flex:1;align-content:center}
-#line{text-align:center;color:var(--dim);min-height:24px;font-variant-numeric:tabular-nums}
-#picker{position:fixed;top:56px;left:16px;background:var(--card);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:5;box-shadow:0 8px 24px #000a}
-#picker button{text-align:left;background:none}
-#picker button.on{color:var(--on)}
-#shade{position:fixed;inset:0;background:#0008;z-index:9}
-#sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow:auto;background:var(--card);border-radius:16px 16px 0 0;padding:16px 16px max(16px,env(safe-area-inset-bottom));z-index:10;transform:translateY(100%);transition:transform .25s}
+header .title{flex:1;font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .icon{font-size:22px;background:none;min-width:44px;padding:8px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}
+.banner{background:var(--bad);color:var(--ink);font-weight:700;border-radius:12px;padding:10px 12px}
+body:not(.offline) .banner{display:none}
+body.offline .live{opacity:.4;pointer-events:none}
+body.offline .soft{opacity:.55}
+.ctl{background:var(--card);border-radius:16px;padding:4px}
+.seg{display:flex;gap:2px}
+.seg button{flex:1;background:none;border-radius:12px}
+.seg button[aria-pressed=true]{background:var(--on);color:var(--ink);font-weight:700}
+.seg button.pending{box-shadow:inset 0 0 0 2px var(--on)}
+.room{display:flex;width:100%;justify-content:space-between;align-items:center;background:none;border-top:1px solid var(--line);border-radius:0 0 12px 12px;font-weight:600;text-align:left}
+.room>span:last-child,.dim{color:var(--dim);font-weight:400}
+.card{background:var(--card);border-radius:14px;padding:8px 12px}
+.status .line{display:flex;align-items:center;gap:8px;min-height:28px}
+.status .sub{display:flex;align-items:center;flex-wrap:wrap;color:var(--dim);font-size:14px;min-height:20px}
+.link{background:none;color:var(--on);text-decoration:underline;padding:0 6px;font-size:14px}
+.body{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.sk{flex:1;min-height:0;position:relative;background:var(--sketch);border-radius:14px}
+.sk svg{position:absolute;inset:0;width:100%;height:100%}
+.actions{display:flex;gap:8px}
+.actions button{flex:1}
+.primary{background:var(--on);color:var(--ink);font-weight:700}
+.danger{background:var(--bad);color:var(--ink);font-weight:700}
+.primary:disabled{background:var(--card);color:var(--fg);font-weight:400;opacity:.6}
+.pad{display:grid;--k:min(25vw,11vh,96px);grid-template-columns:repeat(3,var(--k));grid-auto-rows:var(--k);gap:8px;justify-content:center;align-content:center;touch-action:none}
+.pad button{font-size:26px;touch-action:none;padding:0}
+.pad button.held{background:var(--on);color:var(--ink)}
+.pad .q{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:13px;color:var(--dim)}
+#bManual .pad{flex:1}
+.offbody{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--dim)}
+.offbody b{font-size:22px;color:var(--fg)}
+.offbody .dot{width:18px;height:18px}
+.shade{position:fixed;inset:0;background:#0009;z-index:30}
+#picker{position:fixed;left:16px;right:16px;top:calc(max(8px,env(safe-area-inset-top)) + 150px);background:var(--card);border-radius:14px;padding:6px;display:flex;flex-direction:column;gap:2px;z-index:31;box-shadow:0 8px 24px #000a}
+#picker button{display:flex;justify-content:space-between;background:none;text-align:left}
+#picker button[aria-current=true]{color:var(--on);font-weight:700}
+#toast{position:fixed;left:50%;top:calc(max(8px,env(safe-area-inset-top)) + 50px);transform:translateX(-50%);background:var(--line);padding:10px 16px;border-radius:12px;z-index:60;max-width:90vw;text-align:center;pointer-events:none}
+#toast.bad{background:var(--bad);color:var(--ink);font-weight:600}
+#sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow:auto;background:var(--card);border-radius:16px 16px 0 0;padding:8px 16px max(16px,env(safe-area-inset-bottom));z-index:40;transform:translateY(100%);transition:transform .25s}
 #sheet.open{transform:none}
-.row{margin:14px 0}
-.row label{display:flex;justify-content:space-between;color:var(--dim);margin-bottom:6px}
-.row label b{color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
-input[type=range]{width:100%;accent-color:var(--on)}
-.dual{position:relative;height:28px}
-.dual input{position:absolute;inset:0;margin:0;pointer-events:none;background:none;-webkit-appearance:none;appearance:none}
-.dual input::-webkit-slider-runnable-track{height:4px;background:#444;border-radius:2px}
-.dual input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:26px;height:26px;margin-top:-11px;border-radius:50%;background:var(--fg)}
-.dual input::-moz-range-thumb{pointer-events:auto;width:26px;height:26px;border:0;border-radius:50%;background:var(--fg)}
-.stepper{display:flex;align-items:center;gap:12px}
-.stepper span{min-width:3ch;text-align:center;font-variant-numeric:tabular-nums}
+.sh{display:flex;align-items:center;justify-content:space-between;font-size:18px;font-weight:700}
+.sh button{background:none;color:var(--on);font-weight:700}
+.row{padding:12px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.row label,.row .l{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.row b{font-weight:600;font-variant-numeric:tabular-nums}
+.row small,.ends{display:flex;justify-content:space-between;color:var(--dim);font-size:13px;margin-top:4px}
+input[type=range]{-webkit-appearance:none;appearance:none;background:none;width:100%;height:32px;margin:6px 0 0}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--line);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:32px;height:32px;margin-top:-14px;border-radius:50%;background:var(--fg)}
+input[type=range]::-moz-range-track{height:4px;background:var(--line);border-radius:2px}
+input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radius:50%;background:var(--fg)}
+.dual{position:relative;height:38px}
+.dual input{position:absolute;left:0;right:0;top:0;pointer-events:none}
+.dual input::-webkit-slider-thumb{pointer-events:auto}
+.dual input::-moz-range-thumb{pointer-events:auto}
+.dual input+input::-webkit-slider-runnable-track{background:none}
+.dual input+input::-moz-range-track{background:none}
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper button{width:44px;padding:0;font-size:20px;background:var(--line)}
+.stepper b{min-width:4.5ch;text-align:center}
 .list{display:flex;flex-direction:column;gap:6px}
 .list button{text-align:left;display:flex;justify-content:space-between}
 .list button span{color:var(--dim)}
 .scroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
-svg.sketch{width:100%;max-height:34vh;background:var(--card);border-radius:12px;display:block;margin:8px 0}
-#name{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid #333;border-radius:10px;padding:10px;-webkit-user-select:text;user-select:text}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
-.actions .wide{grid-column:1/-1;background:var(--on)}
-#point .pad{grid-template-columns:repeat(3,min(22vw,80px));grid-auto-rows:min(22vw,80px);margin:4px 0}
-#toast{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);background:#333;padding:10px 16px;border-radius:10px;z-index:20;max-width:90vw;text-align:center}
-#toast.bad{background:var(--bad)}
+.namebox{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:12px;padding:0 12px}
+#name{flex:1;min-width:0;min-height:44px;font:inherit;font-weight:600;color:inherit;background:none;border:0;padding:0;-webkit-user-select:text;user-select:text}
+#point .pad{--k:min(22vw,8.5vh,80px)}
+.center{text-align:center;min-height:22px}
+.tag{background:var(--warn);color:var(--ink);border-radius:6px;padding:1px 6px;font-size:12px;font-weight:700;margin-left:6px}
+.fine{align-self:center;border:1px solid var(--line);border-radius:999px;background:none;padding:0 18px}
+.fine[aria-pressed=true]{background:#b48cff33;border-color:var(--on)}
+.actions .narrow{flex:0 0 56px;font-size:22px}
+.actions .grow{flex:3}
+#dlgShade{display:flex;align-items:center;justify-content:center;z-index:50}
+#dlg{background:var(--card);border-radius:16px;padding:18px;width:min(320px,86vw);text-align:center}
+#dlg b{display:block;font-size:18px;margin-bottom:6px}
+#dlg p{color:var(--dim);margin:0 0 14px}
+#dlgBtns{display:flex;flex-direction:column;gap:8px}
+#dlgBtns button:not(.primary):not(.danger){background:var(--line)}
 </style></head><body>
 
 <div id=home class=screen>
-<header><button class=title id=roomBtn>Laser</button><button class=icon id=gear aria-label=Settings>&#9881;</button></header>
-<div class=seg id=modes><button data-m=random>Random</button><button data-m=manual>Manual</button><button data-m=off>Off</button></div>
-<div class=pad></div>
-<div id=line>&nbsp;</div>
+<header><span class=title>Laser</span><span class=dot id=conn role=img aria-label=Connecting></span><button class=icon id=gear aria-label=Settings>&#9881;&#xFE0E;</button></header>
+<div class=banner role=alert>Not connected to laser-dpad</div>
+<div class=ctl>
+<div class="seg soft" id=modes><button data-m=random aria-pressed=false>Random</button><button data-m=manual aria-pressed=false>Manual</button><button data-m=off aria-pressed=false>Off</button></div>
+<button class="room live" id=roomRow><span><span id=roomName></span> &#9662;</span><span id=roomCount></span></button>
 </div>
-<div id=picker class=hidden></div>
-
-<div id=shade class=hidden></div>
-<div id=sheet>
-<div class=row><label>Glide <b id=glideV></b></label>
-<div class=dual id=glide data-lo=glide_min_us data-hi=glide_max_us data-min=100 data-max=20000 data-step=100><input type=range><input type=range></div></div>
-<div class=row><label>Pause <b id=dwellV></b></label>
-<div class=dual id=dwell data-lo=dwell_min_ms data-hi=dwell_max_ms data-min=0 data-max=20000 data-step=100><input type=range><input type=range></div></div>
-<div class=row><label>Active minutes</label><div class=stepper data-k=active_min data-min=1 data-max=240><button>&minus;</button><span></span><button>+</button></div></div>
-<div class=row><label>Rest minutes</label><div class=stepper data-k=rest_min data-min=0 data-max=240><button>&minus;</button><span></span><button>+</button></div></div>
-<div class=row><label>Manual speed <b id=speedV></b></label><input type=range id=speed min=50 max=2000 step=10></div>
-<div class=row><label>Rooms</label><div class=list id=rooms></div></div>
+<div class="card status soft" id=status aria-live=polite><div class=line><span class=dot id=stDot></span><span id=stLine>Connecting</span></div><div class=sub id=stSub></div></div>
+<div class="body hidden" id=bRandom>
+<div class=sk><svg id=homeSketch aria-label="Room outline"></svg></div>
+<div class="actions live"><button id=editOutline>Edit outline</button><button id=homePreview>Preview</button></div>
+</div>
+<div class="body hidden live" id=bManual><div class=pad></div></div>
+<div class="offbody hidden" id=bOff><span class=dot></span><b>Laser off</b>Servos holding still</div>
 </div>
 
-<div id=room class="screen hidden">
-<header><button class=icon data-back=home>&#8249;</button><input id=name maxlength=16 aria-label="Room name"></header>
-<svg class=sketch id=roomSketch></svg>
-<div class="scroll list" id=pointList></div>
-<div class=actions><button id=addPoint>Add point at end</button><button id=preview>Preview</button></div>
+<div id=pickShade class="shade hidden"></div>
+<div id=picker class=hidden role=listbox aria-label=Rooms></div>
+
+<div id=shade class="shade hidden"></div>
+<div id=sheet role=dialog aria-modal=true aria-labelledby=sheetTitle>
+<div class=sh><span id=sheetTitle>Settings</span><button id=done>Done</button></div>
+<div class=row><label>Random speed <b id=glideV></b></label>
+<div class=dual id=glide><input type=range min=100 max=20000 step=100 aria-label="Random speed, slow end"><input type=range min=100 max=20000 step=100 aria-label="Random speed, fast end"></div>
+<div class=ends><span>Slow</span><span>Fast</span></div></div>
+<div class=row><label>Pause at each spot <b id=dwellV></b></label>
+<div class=dual id=dwell><input type=range min=0 max=20000 step=100 aria-label="Shortest pause"><input type=range min=0 max=20000 step=100 aria-label="Longest pause"></div></div>
+<div class=row><div class=l>Play for <div class=stepper data-k=active_min data-min=1 data-max=240><button aria-label=Decrease>&minus;</button><b></b><button aria-label=Increase>+</button></div></div></div>
+<div class=row><div class=l>Then rest for <div class=stepper data-k=rest_min data-min=0 data-max=240><button aria-label=Decrease>&minus;</button><b></b><button aria-label=Increase>+</button></div></div>
+<small>0 = never rest · applies from the next cycle</small></div>
+<div class=row><label>D-pad speed <b id=speedV></b></label><input type=range id=speed min=50 max=2000 step=10 aria-label="D-pad speed">
+<div class=ends><span>Slow</span><span>Fast</span></div></div>
+<div class=row><div class=l>Connection <b id=connV></b></div></div>
+</div>
+
+<div id=outline class="screen hidden">
+<header><button class=icon id=outBack aria-label=Back>&#8249;</button><span class=title>Outline</span></header>
+<div class=banner role=alert>Not connected to laser-dpad</div>
+<label class="namebox live"><span aria-hidden=true>&#9998;</span><input id=name maxlength=16 aria-label="Room name" enterkeyhint=done><span class=dim id=nameCount></span></label>
+<div class=sk style="flex:none;height:28vh"><svg id=roomSketch aria-label="Room outline"></svg></div>
+<div class="scroll list live" id=pointList></div>
+<div class="actions live"><button id=addPoint>+ Add point</button><button id=preview>Preview</button></div>
 </div>
 
 <div id=point class="screen hidden">
-<header><button class=icon data-back=room>&#8249;</button><div class=title id=pointTitle></div></header>
-<svg class=sketch id=pointSketch></svg>
-<div class=pad></div>
-<div class=actions>
-<button class=wide id=save>Save point here</button>
-<button id=prev>Prev</button><button id=next>Next</button>
-<button id=insert>Insert new after</button><button id=del>Delete</button>
+<header><button class=icon id=pointBack aria-label=Back>&#8249;</button><span class=title id=pointTitle></span><button class="icon live" id=del aria-label="Delete point"><svg width=22 height=22 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round aria-hidden=true><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button></header>
+<div class=banner role=alert>Not connected to laser-dpad</div>
+<div class=sk style="min-height:28vh"><svg id=pointSketch aria-label="Outline with this point"></svg></div>
+<div class=center id=saveState aria-live=polite></div>
+<div class="pad live" id=pointPad></div>
+<button class="fine live" id=fine aria-pressed=false>Fine aim</button>
+<div class="actions live"><button class=narrow id=prev aria-label="Previous point">&#8249;</button><button class="primary grow" id=save></button><button class=narrow id=next aria-label="Next point">&#8250;</button></div>
+<button class=live id=insert></button>
 </div>
-</div>
-<div id=toast class=hidden></div>
+
+<div id=dlgShade class="shade hidden"><div id=dlg role=dialog aria-modal=true aria-labelledby=dlgTitle aria-describedby=dlgText><b id=dlgTitle></b><p id=dlgText></p><div id=dlgBtns></div></div></div>
+<div id=toast class=hidden role=status></div>
 
 <script>
 // geometry:start
@@ -118,148 +182,267 @@ return false;
 // geometry:end
 
 const $=id=>document.getElementById(id);
-let S=null,edit=null,toastTimer=null;
-const json=r=>r.ok?r.json():Promise.reject(r.status);
-const get=p=>fetch(p,{cache:'no-store'});
+const NS='http://www.w3.org/2000/svg';
+const C={line:'#3a3150',on:'#b48cff',bad:'#ff6b6b',warn:'#ffb35c',fg:'#f3effa'};
+// Last good status, its arrival time, and recent round trips in ms
+let S=null,lastOkAt=0,offline=false,fails=0,rtts=[],edit=null,pendingMode=null,toastTimer=null;
 
-function toast(t,bad){const el=$('toast');el.textContent=t;el.className=bad?'bad':'';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='hidden',2500)}
-function show(id){for(const s of ['home','room','point'])$(s).classList.toggle('hidden',s!==id);if(id!=='point')edit=null}
+function get(p){const c=new AbortController(),t=setTimeout(()=>c.abort(),3000);
+return fetch(p,{cache:'no-store',signal:c.signal}).finally(()=>clearTimeout(t))}
+const json=r=>r.ok?r.json():Promise.reject(r.status);
 const mmss=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+const pts=n=>n?n+(n===1?' pt':' pts'):'no outline';
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+
+function toast(t,bad){const e=$('toast');e.textContent=t;e.className=bad?'bad':'';clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.className='hidden',2500)}
+function visible(id){return !$(id).classList.contains('hidden')}
+function show(id){for(const s of ['home','outline','point'])$(s).classList.toggle('hidden',s!==id);if(id!=='point'){edit=null;fineAim(false)}render()}
+function rebuildIfChanged(e,key,build){if(e._key===key)return;e._key=key;build()}
+
+function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();renderQuality()}
+const avgRtt=()=>rtts.reduce((a,b)=>a+b,0)/(rtts.length||1);
+function quality(){return offline?'Offline':!rtts.length?'--':avgRtt()<200?'OK':'Weak'}
+function renderQuality(){renderConnRow();for(const q of document.querySelectorAll('.pad .q'))q.lastChild.textContent=quality();
+for(const d of document.querySelectorAll('.pad .q .dot'))d.className='dot '+(offline?'bad':quality()==='Weak'?'warn':'ok')}
+
+// Status polling
+let pollTimer=null,seq=0,applied=0;
+function pollDelay(){return visible('point')?150:S&&S.previewing?500:2000}
+function poll(){clearTimeout(pollTimer);const my=++seq,t=performance.now();
+return get('/status').then(json).then(s=>{rtt(performance.now()-t);fails=0;lastOkAt=Date.now();setOffline(false);if(my>=applied){applied=my;fill(s)}})
+.catch(()=>{if(++fails>=2)setOffline(true);render()})
+.finally(()=>{clearTimeout(pollTimer);pollTimer=setTimeout(poll,pollDelay())})}
+function setOffline(v){if(v===offline)return;offline=v;document.body.classList.toggle('offline',v);
+for(const e of document.querySelectorAll('.live'))e.inert=v;if(v)release();renderQuality()}
+function fill(s){S=s;render()}
+// Mutation replies are newer than any poll still in flight
+function fillNow(s){applied=++seq;fill(s)}
+function render(){if(visible('home'))renderHome();if(visible('outline'))fillOutline();if(visible('point')&&edit&&S)fillPoint();renderConn();fillSheet()}
+function renderConn(){const c=$('conn');c.className='dot '+(offline?'bad':S?'ok':'');c.setAttribute('aria-label',offline?'Offline':S?'Connected':'Connecting')}
+
+// Settings changes. Network failure and refusal toast differently
+function set(q){return get('/set?'+q).then(r=>{if(r.status===400){toast('Setting refused',true);return false}
+if(!r.ok)throw r.status;return r.json().then(s=>{fillNow(s);return true})}).catch(()=>{toast('No connection',true);return false})}
+
+// Home
+function shownMode(){return S.mode==='random'||(S.mode==='manual'&&S.previewing)?'random':S.mode}
+for(const b of $('modes').children)b.addEventListener('click',()=>{const m=b.dataset.m;pendingMode=m;renderModes();
+get('/mode?m='+m).then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection, mode not changed',true))
+.finally(()=>{if(pendingMode===m)pendingMode=null;renderModes()})});
+function renderModes(){const m=S&&shownMode();for(const b of $('modes').children){
+b.setAttribute('aria-pressed',String(b.dataset.m===m));b.classList.toggle('pending',b.dataset.m===pendingMode)}}
+function renderHome(){renderModes();
+const m=S&&shownMode();
+$('roomRow').classList.toggle('hidden',m!=='random');
+$('status').classList.toggle('hidden',m==='off');
+for(const [id,k] of [['bRandom','random'],['bManual','manual'],['bOff','off']])$(id).classList.toggle('hidden',m!==k);
+renderStatus();
+if(!S)return;
+$('roomName').textContent=S.names[S.preset];$('roomCount').textContent=pts(S.counts[S.preset]);
+if(m==='random'){sketch($('homeSketch'),{would:S.points});$('homePreview').disabled=S.points.length<3}
+renderPicker()}
+function link(text,go){const b=el('button','link',text);b.addEventListener('click',go);return b}
+const toRandom=()=>get('/mode?m=random').then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection',true));
+// Seconds left in the phase, counted down locally between polls
+const remaining=()=>Math.max(0,S.phase_remaining_s-Math.floor((Date.now()-lastOkAt)/1000));
+function renderStatus(){
+if(!visible('home'))return;
+const sub=$('stSub'),dot=$('stDot');let line,kind='ok',parts=[];
+if(!S){line='Connecting';kind=''}
+else if(S.previewing){line='Previewing outline';parts=[link('Stop',toRandom)]}
+else if(S.mode==='random'&&S.idle==='no_area'){line=S.names[S.preset]+' has no outline';kind='warn';parts=[link('Edit outline',openOutline),' · needs 3 points']}
+else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';parts=[cd('Back in '+mmss(remaining())),' · ',link('Start now',toRandom)]}
+else if(S.mode==='random'){line='Playing, laser on';parts=[S.rest_min?cd('Rests in '+mmss(remaining())):'No rest']}
+else{line='Manual, laser on';parts=['Full range']}
+if(offline&&S)parts=[cd('last known, '+Math.round((Date.now()-lastOkAt)/1000)+' s ago')];
+$('stLine').textContent=line;dot.className='dot '+kind;
+// Rebuild only when the shape changes and tick the countdown in place, so no link tap is swallowed
+rebuildIfChanged(sub,parts.map(p=>typeof p==='string'?p:p.className==='cd'?'{cd}':'['+p.textContent+']').join('|'),()=>sub.replaceChildren(...parts));
+const t=parts.find(p=>p.className==='cd'),c=sub.querySelector('.cd');if(t&&c)c.textContent=t.textContent}
+const cd=t=>el('span','cd',t);
+setInterval(renderStatus,1000);
+
+// Room picker over a backdrop that eats the closing tap
+function renderPicker(){const p=$('picker');
+rebuildIfChanged(p,JSON.stringify([S.names,S.counts,S.preset]),()=>p.replaceChildren(...S.names.map((n,i)=>{
+const b=el('button');b.setAttribute('role','option');b.setAttribute('aria-current',String(i===S.preset));
+b.append(el('span',null,(i===S.preset?'✓ ':'')+n),el('span','dim',pts(S.counts[i])));
+b.addEventListener('click',()=>{picker(false);set('preset='+i)});return b})))}
+function picker(open){$('picker').classList.toggle('hidden',!open);$('pickShade').classList.toggle('hidden',!open)}
+$('roomRow').addEventListener('click',()=>{if(S){renderPicker();picker(true)}});
+$('pickShade').addEventListener('click',()=>picker(false));
+$('editOutline').addEventListener('click',()=>openOutline());
+$('homePreview').addEventListener('click',()=>get('/preview').then(()=>poll()).catch(()=>toast('No connection',true)));
 
 // D-pad: hold to glide, keepalive every 120 ms, slide to change direction
-let held=null,timer=null,busy=false,pend=null,rtts=[];
+let fineOn=false,held=null,heldPad=null,timer=null,busy=false,pend=null;
 const GLYPH={upleft:'◤',up:'▲',upright:'◥',left:'◀',right:'▶',downleft:'◣',down:'▼',downright:'◢'};
-function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();const a=rtts.reduce((x,y)=>x+y,0)/rtts.length;
-for(const el of document.querySelectorAll('.rtt'))el.textContent=ms.toFixed(0)+' ms\navg '+a.toFixed(0)}
+const NAME={upleft:'Up left',up:'Up',upright:'Up right',left:'Left',right:'Right',downleft:'Down left',down:'Down',downright:'Down right'};
+// Fine aim only on the point editor's D-pad
+function dpadQuery(d){return '/d?dir='+d+(fineOn&&heldPad===$('pointPad')?'&fine=1':'')}
 function send(d){if(busy){pend=d;return}busy=true;const t=performance.now();
-get('/d?dir='+d).then(()=>rtt(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)})
+get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)})
 .finally(()=>{busy=false;if(pend!==null){const p=pend;pend=null;send(p)}})}
-function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held)}
-function press(d){held=d;mark();if(S&&S.mode!=='manual'){S.mode='manual';fillHome()}send(d);
+function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held&&b.parentNode===heldPad)}
+function press(pad,d){held=d;heldPad=pad;mark();send(d);if(visible('point')&&edit)edit.moved=true;
 clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120)}
 function release(){if(!held)return;held=null;mark();clearInterval(timer);timer=null;pend=null;send('stop')}
-function dirAt(e){const el=document.elementFromPoint(e.clientX,e.clientY);const b=el&&el.closest('[data-d]');return b?b.dataset.d:null}
+function dirAt(e){const t=document.elementFromPoint(e.clientX,e.clientY);const b=t&&t.closest('[data-d]');return b?b.dataset.d:null}
 for(const pad of document.querySelectorAll('.pad')){
 for(const d of ['upleft','up','upright','left',null,'right','downleft','down','downright']){
-const el=document.createElement(d?'button':'div');
-if(d){el.dataset.d=d;el.textContent=GLYPH[d];el.setAttribute('aria-label',d)}else{el.className='rtt';el.textContent='--'}
-pad.append(el)}
-pad.addEventListener('pointerdown',e=>{const d=dirAt(e);if(!d)return;e.preventDefault();pad.setPointerCapture(e.pointerId);press(d)});
-pad.addEventListener('pointermove',e=>{if(!held)return;const d=dirAt(e);if(d&&d!==held)press(d)});
+let e;if(d){e=el('button',null,GLYPH[d]);e.dataset.d=d;e.setAttribute('aria-label',NAME[d])}
+else{e=el('div','q');e.append(el('span','dot'),el('span',null,'--'))}
+pad.append(e)}
+pad.addEventListener('pointerdown',e=>{const d=dirAt(e);if(!d||offline)return;e.preventDefault();pad.setPointerCapture(e.pointerId);press(pad,d)});
+pad.addEventListener('pointermove',e=>{if(!held)return;const d=dirAt(e);if(d&&d!==held)press(pad,d)});
 for(const t of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(t,release);
 pad.addEventListener('contextmenu',e=>e.preventDefault())}
 
-// Status
-function fill(s){S=s;fillHome();fillSheet();if(!$('room').classList.contains('hidden'))fillRoom();if(edit)fillPoint()}
-function fillHome(){
-$('roomBtn').textContent='Laser · '+S.names[S.preset]+' ▾';
-for(const b of $('modes').children)b.classList.toggle('on',b.dataset.m===S.mode);
-let line;
-if(S.mode==='random')line=S.idle==='no_area'?'Add at least 3 points to this room':'Random · '+S.phase+' · '+mmss(S.phase_remaining_s);
-else line=S.mode==='manual'?'Manual':'Off';
-$('line').textContent=line}
-let pollTimer=null;
-function poll(){clearTimeout(pollTimer);get('/status').then(json).then(fill).catch(()=>{}).finally(()=>{pollTimer=setTimeout(poll,edit?150:2000)})}
-function set(q){return get('/set?'+q).then(json).then(fill).catch(()=>toast('Setting refused',true))}
-
-for(const b of $('modes').children)b.addEventListener('click',()=>{if(S){S.mode=b.dataset.m;fillHome()}get('/mode?m='+b.dataset.m).finally(poll)});
-
-// Room picker
-$('roomBtn').addEventListener('click',()=>{const p=$('picker');if(!S)return;p.replaceChildren();
-S.names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;b.classList.toggle('on',i===S.preset);
-b.addEventListener('click',()=>{p.classList.add('hidden');set('preset='+i)});p.append(b)});
-p.classList.toggle('hidden')});
-document.addEventListener('pointerdown',e=>{if(!e.target.closest('#picker,#roomBtn'))$('picker').classList.add('hidden')});
+// Sketch, flipped to match the D-pad (Left raises x), zoomed to every drawn point
+function node(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
+function sketch(svg,{saved=null,would=[],hi=-1,bad=false,numbered=false}={}){
+const all=(saved||[]).concat(would),X=x=>-x;
+let x0,x1,y0,y1;
+if(all.length){x0=Math.min(...all.map(p=>X(p[0])));x1=Math.max(...all.map(p=>X(p[0])));y0=Math.min(...all.map(p=>p[1]));y1=Math.max(...all.map(p=>p[1]))}
+else{const c=(S.travel[0]+S.travel[1])/2;x0=x1=X(c);y0=y1=c}
+const m=Math.max(60,0.1*Math.max(x1-x0,y1-y0)),w=x1-x0+2*m,h=y1-y0+2*m,u=Math.max(w,h)/150;
+svg.setAttribute('viewBox',`${x0-m} ${y0-m} ${w} ${h}`);svg.replaceChildren();
+const P=p=>p.map(([x,y])=>X(x)+','+y).join(' ');
+if(saved&&saved.length)svg.append(node('polygon',{points:P(saved),fill:'none',stroke:C.line,'stroke-width':u*1.5,'stroke-dasharray':u*4}));
+const col=bad?C.bad:C.on;
+if(would.length)svg.append(node('polygon',{points:P(would),fill:col,'fill-opacity':.13,stroke:col,'stroke-width':u*1.5,'stroke-linejoin':'round'}));
+const cx=would.reduce((a,p)=>a+X(p[0]),0)/(would.length||1),cy=would.reduce((a,p)=>a+p[1],0)/(would.length||1);
+would.forEach(([x,y],i)=>{svg.append(node('circle',{cx:X(x),cy:y,r:i===hi?u*6:u*3,fill:i===hi?(bad?C.bad:C.warn):col}));
+if(numbered){let dx=X(x)-cx,dy=y-cy,l=Math.hypot(dx,dy);if(l<1){dx=0;dy=-1;l=1}
+const t=node('text',{x:X(x)+dx/l*u*10,y:y+dy/l*u*10+u*3,'font-size':u*9,fill:C.fg,'text-anchor':'middle'});t.textContent=i+1;svg.append(t)}})}
 
 // Settings sheet
-function sheet(open){$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open)}
-$('gear').addEventListener('click',()=>sheet(true));$('shade').addEventListener('click',()=>sheet(false));
-const fmtGlide=us=>(us/1000).toFixed(1);
-const fmtDwell=ms=>(ms/1000).toFixed(1);
-function dualLabel(el){const [a,b]=el.querySelectorAll('input');const lo=Math.min(a.value,b.value),hi=Math.max(a.value,b.value);
-return el.id==='glide'?fmtGlide(lo)+'-'+fmtGlide(hi)+' ms/step':fmtDwell(lo)+'-'+fmtDwell(hi)+' s'}
-for(const el of document.querySelectorAll('.dual')){
-for(const i of el.querySelectorAll('input')){i.min=el.dataset.min;i.max=el.dataset.max;i.step=el.dataset.step;
-i.addEventListener('input',()=>$(el.id+'V').textContent=dualLabel(el));
-i.addEventListener('change',()=>{const [a,b]=el.querySelectorAll('input');
-set(el.dataset.lo+'='+Math.min(a.value,b.value)+'&'+el.dataset.hi+'='+Math.max(a.value,b.value))})}}
-for(const el of document.querySelectorAll('.stepper')){const [minus,plus]=el.querySelectorAll('button');
-const bump=d=>{if(!S)return;const v=Math.min(+el.dataset.max,Math.max(+el.dataset.min,S[el.dataset.k]+d));set(el.dataset.k+'='+v)};
-minus.addEventListener('click',()=>bump(-1));plus.addEventListener('click',()=>bump(1))}
-$('speed').addEventListener('input',()=>$('speedV').textContent=$('speed').value+'/s');
+function sheet(open){$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open);if(open)$('done').focus()}
+$('gear').addEventListener('click',()=>sheet(true));$('shade').addEventListener('click',()=>sheet(false));$('done').addEventListener('click',()=>sheet(false));
+const secs=ms=>ms%1000?(ms/1000).toFixed(1):String(ms/1000);
+// Random speed runs right-is-faster, so slider value v is 20100 - v µs
+const DUAL={
+glide:{get:()=>[20100-S.glide_max_us,20100-S.glide_min_us],
+q:(lo,hi)=>'glide_min_us='+(20100-hi)+'&glide_max_us='+(20100-lo),
+label:(lo,hi)=>{const t=((lo+hi)/2-100)/19900;return t<1/3?'Slow':t<2/3?'Medium':'Fast'}},
+dwell:{get:()=>[S.dwell_min_ms,S.dwell_max_ms],
+q:(lo,hi)=>'dwell_min_ms='+lo+'&dwell_max_ms='+hi,
+label:(lo,hi)=>(lo===hi?secs(lo):secs(lo)+'-'+secs(hi))+' s'}};
+function thumbs(e){const [a,b]=e.querySelectorAll('input');return [Math.min(+a.value,+b.value),Math.max(+a.value,+b.value)]}
+for(const [id,d] of Object.entries(DUAL)){const e=$(id);
+for(const i of e.querySelectorAll('input')){
+i.addEventListener('input',()=>$(id+'V').textContent=d.label(...thumbs(e)));
+i.addEventListener('change',()=>set(d.q(...thumbs(e))))}}
+const crosses=v=>{const n=(S.travel[1]-S.travel[0])/v;return 'Crosses in '+(n<10?n.toFixed(1):Math.round(n))+' s'};
+$('speed').addEventListener('input',()=>$('speedV').textContent=crosses(+$('speed').value));
 $('speed').addEventListener('change',()=>set('manual_speed='+$('speed').value));
-function fillSheet(){
-for(const el of document.querySelectorAll('.dual')){const [a,b]=el.querySelectorAll('input');
-if(document.activeElement!==a&&document.activeElement!==b){a.value=S[el.dataset.lo];b.value=S[el.dataset.hi]}
-$(el.id+'V').textContent=dualLabel(el)}
-for(const el of document.querySelectorAll('.stepper'))el.querySelector('span').textContent=S[el.dataset.k];
+// Steppers keep a local value, send 400 ms after the last change, and repeat while held
+for(const e of document.querySelectorAll('.stepper')){const [minus,plus]=e.querySelectorAll('button'),k=e.dataset.k;
+const label=()=>e.querySelector('b').textContent=e._v+' min';
+const bump=d=>{if(!S)return;if(e._v==null)e._v=S[k];e._v=Math.min(+e.dataset.max,Math.max(+e.dataset.min,e._v+d));label();
+clearTimeout(e._send);e._busy=true;e._send=setTimeout(()=>set(k+'='+e._v).finally(()=>{e._busy=false;fillSheet()}),400)};
+for(const [b,d] of [[minus,-1],[plus,1]]){let rep=null;
+const stop=()=>{clearTimeout(rep);clearInterval(rep);rep=null};
+b.addEventListener('pointerdown',ev=>{ev.preventDefault();bump(d);stop();rep=setTimeout(()=>{rep=setInterval(()=>bump(d),120)},400)});
+for(const t of ['pointerup','pointerleave','pointercancel'])b.addEventListener(t,stop);
+// Keyboard activation only, pointer taps already stepped
+b.addEventListener('click',ev=>{if(ev.detail===0)bump(d)})}}
+function renderConnRow(){const c=$('connV');if(!c)return;
+c.textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms · avg '+avgRtt().toFixed(0):'--'}
+function fillSheet(){renderConnRow();if(!S)return;
+for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input');
+if(document.activeElement!==a&&document.activeElement!==b)[a.value,b.value]=d.get();
+$(id+'V').textContent=d.label(...thumbs(e))}
+for(const e of document.querySelectorAll('.stepper')){if(!e._busy){e._v=S[e.dataset.k];e.querySelector('b').textContent=e._v+' min'}}
 if(document.activeElement!==$('speed'))$('speed').value=S.manual_speed;
-$('speedV').textContent=$('speed').value+'/s';
-const rooms=$('rooms');rooms.replaceChildren();
-S.names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;
-const sp=document.createElement('span');sp.textContent=i===S.preset?(S.points.length+' points'):'';b.append(sp);
-b.addEventListener('click',()=>openRoom(i));rooms.append(b)})}
+$('speedV').textContent=crosses(+$('speed').value)}
 
-// Sketch, flipped to match the D-pad: Left raises x, Up lowers y
-const NS='http://www.w3.org/2000/svg';
-function node(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
-function sketch(svg,saved,would,hi,bad){
-const [min,max]=S.travel,span=max-min,sx=x=>max-x,sy=y=>y-min,pts=p=>p.map(([x,y])=>sx(x)+','+sy(y)).join(' ');
-svg.setAttribute('viewBox',`0 0 ${span} ${span}`);svg.replaceChildren();
-const w=span/150;
-if(saved&&saved.length)svg.append(node('polygon',{points:pts(saved),fill:'none',stroke:'#8e8e93','stroke-width':w,'stroke-dasharray':w*4}));
-const col=bad?'#ff453a':'#0a84ff';
-if(would.length)svg.append(node('polygon',{points:pts(would),fill:bad?'rgba(255,69,58,.15)':'rgba(10,132,255,.15)',stroke:col,'stroke-width':w*1.5}));
-would.forEach(([x,y],i)=>svg.append(node('circle',{cx:sx(x),cy:sy(y),r:i===hi?w*7:w*3.5,fill:i===hi?'#ffd60a':col})));
-svg.append(node('circle',{cx:sx(S.x),cy:sy(S.y),r:w*4,fill:S.laser?'#ff453a':'none',stroke:'#ff453a','stroke-width':w}))}
+// In-page dialog, since confirm() is unreliable in the iOS captive sign-in sheet
+function dialog({title,text,buttons}){return new Promise(res=>{
+const shade=$('dlgShade'),back=document.activeElement;release();
+const close=v=>{shade.classList.add('hidden');document.removeEventListener('keydown',esc);if(back&&back.focus)back.focus();res(v)};
+const esc=e=>{if(e.key==='Escape')close(null)};
+const bs=buttons.map(b=>{const e=el('button',b.kind&&b.kind!=='plain'?b.kind:'',b.label);e.disabled=!!b.disabled;e.addEventListener('click',()=>close(b.label));return e});
+$('dlgTitle').textContent=title;$('dlgText').textContent=text;$('dlgBtns').replaceChildren(...bs);
+shade.onclick=e=>{if(e.target===shade)close(null)};document.addEventListener('keydown',esc);
+shade.classList.remove('hidden');(bs.find(b=>!b.disabled)||bs[0]).focus()})}
 
-// Room editor
-function openRoom(i){sheet(false);set('preset='+i).then(()=>{show('room');fillRoom();$('name').value=S.names[S.preset]})}
-function fillRoom(){
+// Outline editor, always the active room
+function openOutline(){show('outline');if(S)$('name').value=S.names[S.preset]}
+function fillOutline(){if(!S)return;
+const n=S.points.length;
 if(document.activeElement!==$('name'))$('name').value=S.names[S.preset];
-sketch($('roomSketch'),null,S.points,-1,false);
-const list=$('pointList');list.replaceChildren();
-S.points.forEach(([x,y],i)=>{const b=document.createElement('button');b.textContent='Point '+(i+1);
-const sp=document.createElement('span');sp.textContent=x+', '+y;b.append(sp);b.addEventListener('click',()=>openPoint(i,false));list.append(b)});
-if(!S.points.length){const p=document.createElement('div');p.style.color='var(--dim)';p.textContent='No points yet. Steer the laser on the home screen, then add points here.';list.append(p)}
-$('addPoint').disabled=S.points.length>=16;$('preview').disabled=S.points.length<3}
-$('name').addEventListener('blur',()=>{const v=$('name').value.trim();if(S&&v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v))});
+$('nameCount').textContent=pts(n);
+sketch($('roomSketch'),{would:S.points,numbered:true});
+const list=$('pointList');
+rebuildIfChanged(list,JSON.stringify(S.points),()=>{list.replaceChildren(...S.points.map((_,i)=>{const b=el('button',null,'Point '+(i+1));
+b.append(el('span',null,'›'));b.addEventListener('click',()=>openPoint(i));return b}));
+if(!n)list.append(el('div','dim','No points yet. Add point aims the laser where it is now.'))});
+$('addPoint').disabled=n>=16;
+$('preview').textContent=S.previewing?'Stop preview':'Preview';$('preview').disabled=!S.previewing&&n<3}
+function commitName(){const v=$('name').value.trim();if(S&&v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v)).then(ok=>{if(ok)toast('Renamed')})}
+$('name').addEventListener('blur',commitName);
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
-$('addPoint').addEventListener('click',()=>{const pts=S.points.concat([[S.x,S.y]]);savePoints(pts).then(ok=>{if(ok)openPoint(pts.length-1,false)})});
-$('preview').addEventListener('click',()=>get('/preview').then(poll));
-for(const b of document.querySelectorAll('[data-back]'))b.addEventListener('click',()=>{release();show(b.dataset.back);if(b.dataset.back==='room')fillRoom();poll()});
+$('addPoint').addEventListener('click',()=>get('/mode?m=manual').then(r=>{if(!r.ok)throw r.status;
+edit={i:S.points.length-1,kind:'new',moved:false};show('point');return poll()}).catch(()=>toast('No connection',true)));
+$('preview').addEventListener('click',()=>S.previewing?toRandom():get('/preview').then(()=>poll()).catch(()=>toast('No connection',true)));
+$('outBack').addEventListener('click',()=>{release();show('home');if(S&&S.mode==='manual'&&!S.previewing)toRandom();else poll()});
 
-// Point editor. `edit.i` is the point, or the one a new point goes after when inserting
-function wouldBe(){const p=S.points.slice(),live=[S.x,S.y];if(edit.insert)p.splice(edit.i+1,0,live);else p[edit.i]=live;return p}
-function openPoint(i,insert){
-const n=S.points.length;if(!n)return;
-i=(i+n)%n;edit={i,insert};
-const a=S.points[i],b=S.points[(i+1)%n];
-const to=insert?[Math.round((a[0]+b[0])/2),Math.round((a[1]+b[1])/2)]:a;
-get('/goto?x='+to[0]+'&y='+to[1]).finally(poll);
-show('point');fillPoint()}
+// Point editor. `edit.i` is the point, or the one a new point goes after
+const liveIndex=()=>edit.kind==='new'?edit.i+1:edit.i;
+function wouldBe(){const p=S.points.slice(),live=[S.x,S.y];if(edit.kind==='new')p.splice(edit.i+1,0,live);else p[edit.i]=live;return p}
+function unsaved(){if(edit.kind==='new')return true;const p=S.points[edit.i];return edit.moved&&!!p&&(p[0]!==S.x||p[1]!==S.y)}
+function invalid(){const w=wouldBe(),li=liveIndex(),[x,y]=w[li];
+const j=w.findIndex((p,k)=>k!==li&&p[0]===x&&p[1]===y);
+return j>=0?'Same spot as point '+(j+1):selfCrossing(w)?'Crosses itself':null}
+// Midpoint of edge `i`, pushed 8% of its length away from the vertex centroid
+function insertSpot(i){const P=S.points,n=P.length,a=P[i],b=P[(i+1)%n];
+const m=[(a[0]+b[0])/2,(a[1]+b[1])/2],d=[b[0]-a[0],b[1]-a[1]],len=Math.hypot(...d)||1;
+const c=[P.reduce((s,p)=>s+p[0],0)/n,P.reduce((s,p)=>s+p[1],0)/n];
+let nx=-d[1]/len,ny=d[0]/len;if(nx*(m[0]-c[0])+ny*(m[1]-c[1])<0){nx=-nx;ny=-ny}
+const [lo,hi]=S.travel,cl=v=>Math.min(hi,Math.max(lo,Math.round(v)));
+return [cl(m[0]+nx*0.08*len),cl(m[1]+ny*0.08*len)]}
+function goto([x,y]){return get('/goto?x='+x+'&y='+y).then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection',true))}
+function openPoint(i){edit={i,kind:'point',moved:false};show('point');goto(S.points[i])}
+function fineAim(on){fineOn=on;$('fine').setAttribute('aria-pressed',String(on))}
+$('fine').addEventListener('click',()=>fineAim(!fineOn));
 function fillPoint(){
-const n=S.points.length;if(edit.i>=n&&n){edit.i=n-1;edit.insert=false}
-const would=wouldBe(),bad=selfCrossing(would),hi=edit.insert?edit.i+1:edit.i;
-$('pointTitle').textContent=edit.insert?'New point after '+(edit.i+1):'Point '+(edit.i+1)+' of '+n;
-sketch($('pointSketch'),S.points,would,hi,bad);
-$('save').disabled=bad||(edit.insert&&n>=16);$('save').textContent=bad?'Crosses itself':'Save point here';
-$('insert').disabled=n>=16||edit.insert}
-function savePoints(pts){
-if(selfCrossing(pts)){toast('That outline crosses itself',true);return Promise.resolve(false)}
-const q='r='+S.preset+'&p='+pts.map(p=>p.join(',')).join(';');
+const n=S.points.length;
+if(edit.kind==='point'&&edit.i>=n){if(!n){show('outline');return}edit.i=n-1}
+if(edit.kind==='new'&&edit.i>=n)edit.i=n-1;
+const N=liveIndex()+1,un=unsaved(),inv=un?invalid():null;
+$('pointTitle').textContent=edit.kind==='point'?'Point '+N+' of '+n:edit.i===n-1?'New point '+N:'New point after '+(edit.i+1);
+$('del').classList.toggle('hidden',edit.kind!=='point');
+sketch($('pointSketch'),un?{saved:S.points,would:wouldBe(),hi:liveIndex(),bad:!!inv}:{would:S.points,hi:edit.i});
+const st=$('saveState');
+rebuildIfChanged(st,String(un)+edit.kind,()=>{if(!un){st.replaceChildren(el('span','dim','Saved'))}
+else st.replaceChildren(edit.kind==='new'?'New':'Moved',el('span','tag','unsaved'))});
+const b=$('save');b.disabled=!un||!!inv;b.textContent=!un?'Saved':inv||'Save point '+N+' here';
+$('prev').disabled=$('next').disabled=edit.kind==='point'?n<2:n<1;
+const ins=$('insert');ins.classList.toggle('hidden',edit.kind!=='point'||n<2||n>=16);ins.textContent='+ Insert after '+N}
+function savePoints(p){
+if(selfCrossing(p)){toast('That outline crosses itself',true);return Promise.resolve(false)}
+const q='r='+S.preset+'&p='+p.map(v=>v.join(',')).join(';');
 return get('/points?'+q).then(r=>{
-if(r.ok)return r.json().then(s=>{fill(s);return true});
+if(r.ok)return r.json().then(s=>{fillNow(s);return true});
 toast(r.status===409?'Room changed elsewhere, reopen it':'Points refused',true);return false})
 .catch(()=>{toast('No connection',true);return false})}
-$('save').addEventListener('click',()=>{const hi=edit.insert?edit.i+1:edit.i;savePoints(wouldBe()).then(ok=>{if(ok){edit={i:hi,insert:false};toast('Saved');fillPoint()}})});
-$('prev').addEventListener('click',()=>openPoint(edit.insert?edit.i:edit.i-1,false));
-$('next').addEventListener('click',()=>openPoint(edit.i+1,false));
-$('insert').addEventListener('click',()=>openPoint(edit.i,true));
-$('del').addEventListener('click',()=>{
-if(edit.insert){show('room');fillRoom();return}
-const pts=S.points.filter((_,i)=>i!==edit.i);
-savePoints(pts).then(ok=>{if(ok){show('room');fillRoom()}})});
+function savePoint(){const li=liveIndex();return savePoints(wouldBe()).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false};render()}return ok})}
+function leavePoint(go){if(!unsaved())return go();
+const inv=invalid(),N=liveIndex()+1;
+dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:'Save the new aim before leaving?',
+buttons:[{label:inv||'Save',kind:'primary',disabled:!!inv},{label:'Discard'},{label:'Cancel'}]})
+.then(v=>{if(v==='Save')savePoint().then(ok=>{if(ok)go()});else if(v==='Discard')go()})}
+$('save').addEventListener('click',()=>{if(unsaved()&&!invalid())savePoint()});
+const neighbour=d=>{const n=S.points.length;return ((edit.kind==='new'?(d<0?edit.i:edit.i+1):edit.i+d)%n+n)%n};
+$('prev').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(-1))));
+$('next').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(1))));
+$('pointBack').addEventListener('click',()=>{release();leavePoint(()=>show('outline'))});
+$('insert').addEventListener('click',()=>leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false};show('point');goto(insertSpot(i))}));
+$('del').addEventListener('click',()=>{const i=edit.i,k=S.points.length-1;
+dialog({title:'Delete point '+(i+1)+'?',text:k<3?'Random pauses until it has 3 points':'The outline keeps '+k+' points',
+buttons:[{label:'Delete',kind:'danger'},{label:'Cancel'}]})
+.then(v=>{if(v==='Delete')savePoints(S.points.filter((_,j)=>j!==i)).then(ok=>{if(ok)show('outline')})})});
 
-poll();
+show('home');poll();
 </script></body></html>
