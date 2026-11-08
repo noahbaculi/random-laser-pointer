@@ -24,6 +24,14 @@ cargo test --target aarch64-apple-darwin --no-default-features --lib
 
 `--no-default-features` drops the `firmware` feature and its `esp-*` and `embassy-*` dependencies. CI runs the same command on `x86_64-unknown-linux-gnu`.
 
+Run the simulator: the real controller, API, and page on the Mac, no board needed:
+
+```shell
+cargo run --target aarch64-apple-darwin --no-default-features --features sim --bin sim
+```
+
+It serves the phone page at `http://<lan-ip>:8080/` (printed at startup) and a room view at `http://localhost:8080/sim` that draws the outline, laser, and target from `/sim/status`. Settings persist to `target/sim-settings.bin` through `record`. It never exits on its own, so run it in a background shell and kill it after checks. It does not cover WiFi, captive DNS, servo PWM, or flash storage.
+
 Flash a connected board and stream serial logs:
 
 ```shell

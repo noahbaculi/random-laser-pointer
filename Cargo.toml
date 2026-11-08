@@ -11,8 +11,16 @@ path = "src/main.rs"
 required-features = ["firmware"]
 test = false
 
+[[bin]]
+name = "sim"
+path = "src/bin/sim.rs"
+required-features = ["sim"]
+test = false
+
 [features]
 default = ["firmware"]
+# Host simulator, std only
+sim = []
 firmware = [
     "dep:edge-dhcp",
     "dep:edge-nal",

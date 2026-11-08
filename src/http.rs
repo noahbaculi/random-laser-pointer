@@ -159,43 +159,4 @@ impl<const N: usize> core::fmt::Write for Buf<N> {
     }
 }
 
-const PAGE_BODY: &str = r##"<!DOCTYPE html><html><head>
-<meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Laser</title><style>
-body{margin:0;font-family:system-ui;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;touch-action:none;-webkit-user-select:none;user-select:none}
-#pad{display:grid;grid-template-columns:repeat(3,88px);grid-template-rows:repeat(3,88px);gap:8px}
-button{font-size:34px;border:0;border-radius:14px;background:#333;color:#eee;touch-action:none}
-button:active{background:#0a84ff}
-#rtt{display:flex;align-items:center;justify-content:center;font-size:14px;color:#888;white-space:pre;text-align:center}
-#st{color:#888}
-#modes{display:flex;gap:8px;margin-bottom:16px}
-#modes button{font-size:18px;padding:12px 16px}
-#modes button.on{background:#0a84ff}
-</style></head><body>
-<h3>Laser</h3>
-<div id=modes><button data-m=random>Random</button><button data-m=manual>Manual</button><button data-m=off>Off</button></div>
-<div id=pad>
-<i></i><button data-d=up>&#9650;</button><i></i>
-<button data-d=left>&#9664;</button><div id=rtt>--</div><button data-d=right>&#9654;</button>
-<i></i><button data-d=down>&#9660;</button><i></i>
-</div>
-<p id=st>released</p>
-<script>
-let held=null,timer=null,busy=false,pend=null,rtts=[];
-function show(r){rtts.push(r);if(rtts.length>30)rtts.shift();
-let a=rtts.reduce((x,y)=>x+y,0)/rtts.length;
-document.getElementById('rtt').textContent=r.toFixed(0)+' ms\navg '+a.toFixed(0);}
-function send(d){if(busy){pend=d;return}busy=true;let t=performance.now();
-fetch('/d?dir='+d).then(()=>show(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)}).finally(()=>{busy=false;if(pend!==null){let p=pend;pend=null;send(p)}});}
-function dn(e,d){e.preventDefault();held=d;document.getElementById('st').textContent=d;send(d);
-if(timer)clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120);}
-function up(e){e.preventDefault();if(!held)return;held=null;if(timer)clearInterval(timer);timer=null;
-document.getElementById('st').textContent='released';pend=null;send('stop');}
-function mark(m){for(const b of document.querySelectorAll('#modes button'))b.classList.toggle('on',b.dataset.m===m)}
-function poll(){fetch('/status').then(r=>r.json()).then(s=>mark(s.mode)).catch(()=>{})}
-for(const b of document.querySelectorAll('#modes button'))b.addEventListener('click',()=>{mark(b.dataset.m);fetch('/mode?m='+b.dataset.m).finally(poll)});
-poll();setInterval(poll,2000);
-for(const b of document.querySelectorAll('#pad button')){
-b.addEventListener('pointerdown',e=>dn(e,b.dataset.d));
-b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('pointerleave',up);}
-</script></body></html>"##;
+const PAGE_BODY: &str = include_str!("page.html");

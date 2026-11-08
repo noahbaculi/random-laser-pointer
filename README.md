@@ -83,6 +83,8 @@ Build, flash, and stream serial logs until Ctrl-C (the runner is configured in `
 cargo run --release
 ```
 
+Without a board, `cargo run --target aarch64-apple-darwin --no-default-features --features sim --bin sim` runs the same controller and page on the Mac at port 8080, with a room view at `/sim`.
+
 ## Resources
 
 - [The Rust on ESP Book](https://docs.esp-rs.org/book/introduction.html)
