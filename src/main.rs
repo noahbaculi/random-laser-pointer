@@ -7,6 +7,7 @@ mod control;
 mod http;
 mod net;
 mod servo;
+mod store;
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
@@ -49,7 +50,14 @@ async fn main(spawner: Spawner) -> ! {
     let laser = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
     let servos = servo::setup(peripherals.LEDC, peripherals.GPIO3, peripherals.GPIO2);
     let travel = servos.travel;
-    let settings = Settings::defaults(travel);
+    let mut store = store::SettingsStore::new(peripherals.FLASH);
+    if store.is_none() {
+        log::warn!("Settings will not persist");
+    }
+    let settings = store
+        .as_mut()
+        .and_then(|s| s.load(travel))
+        .unwrap_or_else(|| Settings::defaults(travel));
 
     let rng = Rng::new();
     let seed = || (rng.random() as u64) << 32 | rng.random() as u64;
@@ -62,6 +70,9 @@ async fn main(spawner: Spawner) -> ! {
         }))
     });
     spawner.spawn(control::controller_task(servos, laser).unwrap());
+    if let Some(store) = store {
+        spawner.spawn(store::store_task(store).unwrap());
+    }
     log::info!("Random mode");
 
     let stack = net::start(spawner, peripherals.WIFI, seed()).await;

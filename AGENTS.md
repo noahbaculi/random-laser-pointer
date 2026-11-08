@@ -30,11 +30,20 @@ Flash a connected board and stream serial logs:
 cargo run --release
 ```
 
-`cargo run` invokes `espflash flash --monitor`, which streams serial until Ctrl-C. It does not exit on its own, so an agent must not invoke it in a blocking shell. Hand the command to the human, or run it in a background shell only when a human will terminate it.
+`cargo run` invokes `espflash flash --monitor --partition-table partitions.csv`, which streams serial until Ctrl-C. It does not exit on its own, so an agent must not invoke it in a blocking shell. Hand the command to the human, or run it in a background shell only when a human will terminate it.
 
 ## Project todos
 
 The README "Future work" checklist is the single source of truth for project todos. Add follow-up items there instead of scattering open checklists across docs.
+
+## Flash layout
+
+`partitions.csv` is the partition table, passed to espflash by the runner in `.cargo/config.toml`. The `settings` data partition (subtype `fat`, `0x20000`) holds the `record.rs` settings record, outside the first 64 KB that every flash rewrites. Keep the app partition 64 KB aligned with headroom over the image size. Check the table and image size offline with no board:
+
+```shell
+cargo build --release
+espflash save-image --chip esp32c3 --partition-table partitions.csv target/riscv32imc-unknown-none-elf/release/random-laser-pointer /tmp/image.bin
+```
 
 ## Runtime conventions
 

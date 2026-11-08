@@ -1620,6 +1620,7 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
+ "esp-storage",
  "log",
  "rand",
  "static_cell",

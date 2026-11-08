@@ -30,6 +30,7 @@ firmware = [
     "dep:esp-println",
     "dep:esp-radio",
     "dep:esp-rtos",
+    "dep:esp-storage",
     "dep:log",
     "dep:static_cell",
 ]
@@ -68,6 +69,10 @@ esp-rtos = { version = "0.4.0", features = [
     "esp-radio",
     "embassy",
     "log-04",
+], optional = true }
+esp-storage = { version = "0.10.0", features = [
+    "esp32c3",
+    "critical-section",
 ], optional = true }
 log = { version = "0.4.34", optional = true }
 rand = { version = "0.10.2", default-features = false }

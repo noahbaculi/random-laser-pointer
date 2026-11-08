@@ -62,6 +62,8 @@ curl 'http://192.168.2.1/set?manual_speed=600&rest_min=0'         # rest_min=0 d
 
 `/set` keys: `preset`, `name`, `x_min`, `x_max`, `y_min`, `y_max`, `glide_min_us`, `glide_max_us`, `dwell_min_ms`, `dwell_max_ms`, `manual_speed`, `active_min`, `rest_min`. Out-of-range values clamp and reversed min/max pairs swap. An unknown key or unparsable value applies nothing and answers 400.
 
+Settings and the active preset persist across power cycles and reflashing. They are saved 2 s after the last `/set` to the `settings` partition in `partitions.csv`, which sits outside the first 64 KB that every flash rewrites. The mode is not saved, so the station always boots into Random.
+
 ## Development Environment
 
 This project is built in a `no_std` environment utilizing the `esp-hal` crate.
