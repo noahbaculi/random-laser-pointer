@@ -1,6 +1,6 @@
-//! Open WiFi access point, network stack runner, and DHCP server.
+//! Open WiFi access point, network stack runner, DHCP server, and captive DNS.
 
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
@@ -13,6 +13,8 @@ use crate::mk_static;
 
 pub const AP_SSID: &str = "laser-dpad";
 pub const GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 1);
+// Resolves because the captive DNS answers every name with the gateway
+pub const HOSTNAME: &str = "laser.pointer";
 
 /// Brings up the access point, network stack, and DHCP server, then waits for the link
 pub async fn start(spawner: Spawner, wifi: WIFI<'static>, seed: u64) -> Stack<'static> {
@@ -35,17 +37,20 @@ pub async fn start(spawner: Spawner, wifi: WIFI<'static>, seed: u64) -> Stack<'s
     let (stack, runner) = embassy_net::new(
         device,
         net_config,
-        // 3 http TCP sockets + DHCP UDP + headroom
-        mk_static!(StackResources<8>, StackResources::<8>::new()),
+        // 3 http TCP sockets + DHCP UDP + captive DNS UDP + headroom
+        mk_static!(StackResources<9>, StackResources::<9>::new()),
         seed,
     );
 
     spawner.spawn(connection(controller).unwrap());
     spawner.spawn(net_task(runner).unwrap());
     spawner.spawn(run_dhcp(stack).unwrap());
+    spawner.spawn(dns_task(stack).unwrap());
 
     stack.wait_config_up().await;
-    log::info!("Join open network `{AP_SSID}`, then open http://{GATEWAY_IP}/");
+    log::info!(
+        "Join open network `{AP_SSID}`, then open http://{HOSTNAME}/ or http://{GATEWAY_IP}/"
+    );
     stack
 }
 
@@ -56,8 +61,6 @@ async fn net_task(mut runner: Runner<'static, Interface>) {
 
 #[embassy_executor::task]
 async fn run_dhcp(stack: Stack<'static>) {
-    use core::net::SocketAddrV4;
-
     use edge_dhcp::io::{self, DEFAULT_SERVER_PORT};
     use edge_dhcp::server::{Server, ServerOptions};
     use edge_nal::UdpBind;
@@ -65,26 +68,56 @@ async fn run_dhcp(stack: Stack<'static>) {
 
     let mut buf = [0u8; 1500];
     let mut gw_buf = [Ipv4Addr::UNSPECIFIED];
+    // Phones only query the captive DNS if DHCP names it
+    let dns = [GATEWAY_IP];
 
     let buffers = UdpBuffers::<3, 1024, 1024, 10>::new();
     let unbound_socket = Udp::new(stack, &buffers);
     let mut bound_socket = unbound_socket
-        .bind(core::net::SocketAddr::V4(SocketAddrV4::new(
+        .bind(SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::UNSPECIFIED,
             DEFAULT_SERVER_PORT,
         )))
         .await
         .unwrap();
 
+    let mut options = ServerOptions::new(GATEWAY_IP, Some(&mut gw_buf));
+    options.dns = &dns;
     loop {
         _ = io::server::run(
             &mut Server::<_, 64>::new_with_et(GATEWAY_IP),
-            &ServerOptions::new(GATEWAY_IP, Some(&mut gw_buf)),
+            &options,
             &mut bound_socket,
             &mut buf,
         )
         .await
         .inspect_err(|e| log::warn!("DHCP server error: {e:?}"));
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+/// Answers every A query with the gateway, which also opens the phone's captive portal sheet
+#[embassy_executor::task]
+async fn dns_task(stack: Stack<'static>) {
+    use edge_nal_embassy::{Udp, UdpBuffers};
+
+    let buffers = UdpBuffers::<1, 512, 512, 4>::new();
+    let udp = Udp::new(stack, &buffers);
+    let mut tx = [0u8; 512];
+    let mut rx = [0u8; 512];
+    loop {
+        if let Err(e) = edge_captive::io::run(
+            &udp,
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 53)),
+            &mut tx,
+            &mut rx,
+            GATEWAY_IP,
+            core::time::Duration::from_secs(60),
+        )
+        .await
+        {
+            log::warn!("dns: {e:?}");
+        }
         Timer::after(Duration::from_millis(500)).await;
     }
 }

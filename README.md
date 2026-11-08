@@ -32,7 +32,7 @@ The station boots into Random with the `laser-dpad` access point and web page al
 
 | Mode | Laser | Servos |
 |------|-------|--------|
-| Random, active | on | random walk inside the room preset's box |
+| Random, active | on | random walk inside the active room's outline |
 | Random, rest | off | hold position |
 | Manual | on | D-pad glide across full servo travel |
 | Off | off | hold position |
@@ -42,27 +42,42 @@ The station boots into Random with the `laser-dpad` access point and web page al
 
 ## Manual control over WiFi
 
-The station runs an open WiFi access point with a DHCP server and serves a page with three mode buttons and a D-pad.
+The station runs an open WiFi access point with DHCP and a captive DNS, and serves one page for steering, modes, rooms, and tuning.
 
-1. Join the `laser-dpad` WiFi network and keep the connection when the phone warns about no internet.
-2. Open <http://192.168.2.1/> (plain `http`, browsers that force `https` will hang).
-3. Tap Random, Manual, or Off. Hold a direction button to glide the laser. The center tile shows the round-trip time of each command.
+1. Join the `laser-dpad` WiFi network. The page opens in the sign-in sheet, or at <http://laser.pointer/> (plain `http`, browsers that force `https` will hang).
+2. Hold any of the 8 D-pad directions to glide the laser. Sliding a held finger onto another button changes direction. The center tile shows the round-trip time of each command.
+3. Tap Random, Manual, or Off, or tap the room name to switch rooms. The gear opens glide, pause, phase, and manual speed settings plus the room list.
 
 - The page keeps one persistent HTTP connection so commands avoid a TCP handshake, and a held button re-sends its direction every 120 ms as a keepalive.
 - The firmware stops all movement if no command arrives for 350 ms, so a lost release packet cannot leave a servo running away.
+- Without a board, the [simulator](#development-environment) serves the same page and API from the Mac.
 
-The page polls `GET /status` for the current mode. The same API takes every tuning value and four named room presets:
+### Rooms
+
+Each of the four rooms is a name and an outline of up to 16 points, aimed with the laser. Random picks targets inside the outline and travels in straight lines that stay inside it. A room with fewer than 3 points holds Random with the laser off until a third point is saved.
+
+- Opening a room in the editor makes it the active room. Opening a point jumps the laser there, steer it with the D-pad, then Save point here.
+- The would-be outline turns red and Save is disabled if it crosses itself.
+- Preview traces the outline once, then holds at the first point in Manual.
+
+### API
+
+The page polls `GET /status`. The same API takes every tuning value and room outline:
 
 ```shell
-curl 'http://192.168.2.1/status'                                  # mode, phase, position, all settings as JSON
-curl 'http://192.168.2.1/mode?m=off'                              # random, manual, or off
-curl 'http://192.168.2.1/set?preset=1&name=Bedroom&x_min=900'     # switch preset, then edit its name and box
-curl 'http://192.168.2.1/set?manual_speed=600&rest_min=0'         # rest_min=0 disables the rest phase
+curl 'http://laser.pointer/status'                                  # mode, phase, idle reason, position, active room's points, all settings as JSON
+curl 'http://laser.pointer/mode?m=off'                              # random, manual, or off
+curl 'http://laser.pointer/d?dir=upleft'                            # up, down, left, right, the 4 diagonals, or stop
+curl 'http://laser.pointer/goto?x=900&y=1200'                       # glide straight to a duty-count position in Manual
+curl 'http://laser.pointer/set?preset=1&name=Bedroom'               # switch room, then rename it
+curl 'http://laser.pointer/points?r=1&p=900,900;1500,900;1500,1500' # replace the active room's outline, empty p clears it
+curl 'http://laser.pointer/preview'                                 # trace the active outline
+curl 'http://laser.pointer/set?manual_speed=600&rest_min=0'         # rest_min=0 disables the rest phase
 ```
 
-`/set` keys: `preset`, `name`, `x_min`, `x_max`, `y_min`, `y_max`, `glide_min_us`, `glide_max_us`, `dwell_min_ms`, `dwell_max_ms`, `manual_speed`, `active_min`, `rest_min`. Out-of-range values clamp and reversed min/max pairs swap. An unknown key or unparsable value applies nothing and answers 400.
+`/set` keys: `preset`, `name`, `glide_min_us`, `glide_max_us`, `dwell_min_ms`, `dwell_max_ms`, `manual_speed`, `active_min`, `rest_min`. Out-of-range values clamp and reversed min/max pairs swap. An unknown key or unparsable value applies nothing and answers 400. `/points` answers 400 for more than 16 points, unparsable values, or a self-crossing outline, and 409 when `r` is not the active room.
 
-Settings and the active preset persist across power cycles and reflashing. They are saved 2 s after the last `/set` to the `settings` partition in `partitions.csv`, which sits outside the first 64 KB that every flash rewrites. The mode is not saved, so the station always boots into Random.
+Settings, rooms, and the active room persist across power cycles and reflashing. They are saved 2 s after the last `/set` or `/points` to the `settings` partition in `partitions.csv`, which sits outside the first 64 KB that every flash rewrites. The mode is not saved, so the station always boots into Random.
 
 ## Development Environment
 
@@ -95,7 +110,7 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 
 ## Future work
 
-- [ ] Phone UI rebuilt around the settings API: D-pad, laser toggle, random start/stop and speed, room preset picker and box editor
+- [x] Phone UI rebuilt around the settings API: 8-way D-pad, mode switch, settings sheet, room picker and outline editor
 - [ ] Configurable on/off schedule replacing the fixed active/rest cycle
 - [ ] Update the schematic to drop the potentiometers and preview button
 - [ ] Bench checklist, once a board is on hand:
@@ -105,6 +120,10 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
   - [ ] Heap and stack fit with WiFi and the controller running together
   - [ ] Settings and the active preset survive a power cycle and a `cargo run` reflash
   - [ ] Settings save during Manual causes at most a brief glide stop
+  - [ ] Captive sign-in sheet opens the page on iOS and Android
+  - [ ] `laser.pointer` resolves on the phone
+  - [ ] Live outline in the point editor keeps up at 150 ms polling
+  - [ ] Page loads quickly from flash
 - [ ] Upgrade to bigger, more robust, servos
 - [ ] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image

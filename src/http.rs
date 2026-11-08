@@ -15,7 +15,6 @@ pub const HTTP_POOL_SIZE: usize = 3;
 const NO_CONTENT: &[u8] = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
 const BAD_REQUEST: &[u8] = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
 const CONFLICT: &[u8] = b"HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\n\r\n";
-const NOT_FOUND: &[u8] = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
 
 // Keep-alive HTTP server: each pooled task holds one persistent
 // connection, so commands avoid a TCP handshake per request and a
@@ -75,6 +74,7 @@ pub async fn http_task(stack: Stack<'static>) {
     }
 }
 
+/// Writes the reply and returns whether to keep the connection open
 async fn respond(socket: &mut TcpSocket<'_>, route: Route<'_>) -> bool {
     let Some(out) = with_state(|s| api::dispatch(route, s, now_us())) else {
         return socket.write_all(BAD_REQUEST).await.is_ok();
@@ -89,12 +89,16 @@ async fn respond(socket: &mut TcpSocket<'_>, route: Route<'_>) -> bool {
         SETTINGS_CHANGED.signal(());
     }
     let reply: &[u8] = match out.reply {
-        Reply::Page => return send(socket, "text/html", PAGE_BODY.as_bytes()).await,
+        Reply::Page => return send(socket, "text/html", PAGE_BODY.as_bytes(), false).await,
+        // Captive probes get the page, then the socket closes so probes don't hold a keep-alive slot
+        Reply::NotFound => {
+            _ = send(socket, "text/html", PAGE_BODY.as_bytes(), true).await;
+            return false;
+        }
         Reply::Status => return send_status(socket).await,
         Reply::NoContent => NO_CONTENT,
         Reply::BadRequest => BAD_REQUEST,
         Reply::Conflict => CONFLICT,
-        Reply::NotFound => NOT_FOUND,
     };
     socket.write_all(reply).await.is_ok()
 }
@@ -110,14 +114,15 @@ async fn send_status(socket: &mut TcpSocket<'_>) -> bool {
     if api::write_status(&mut body, &status, &settings, travel).is_err() {
         return false;
     }
-    send(socket, "application/json", body.as_bytes()).await
+    send(socket, "application/json", body.as_bytes(), false).await
 }
 
-async fn send(socket: &mut TcpSocket<'_>, content_type: &str, body: &[u8]) -> bool {
-    let mut header = Buf::<128>::new();
+async fn send(socket: &mut TcpSocket<'_>, content_type: &str, body: &[u8], close: bool) -> bool {
+    let mut header = Buf::<160>::new();
+    let connection = if close { "Connection: close\r\n" } else { "" };
     if write!(
         header,
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{connection}\r\n",
         body.len()
     )
     .is_err()
