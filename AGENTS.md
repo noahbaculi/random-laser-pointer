@@ -32,6 +32,14 @@ cargo run --target aarch64-apple-darwin --no-default-features --features sim --b
 
 It serves the phone page at `http://<lan-ip>:8080/` (printed at startup) and a room view at `http://localhost:8080/sim` that draws the outline, laser, and target from `/sim/status`. Settings persist to `target/sim-settings.bin` through `record`. It never exits on its own, so run it in a background shell and kill it after checks. It does not cover WiFi, captive DNS, servo PWM, or flash storage.
 
+To try the page on a real phone, join the Mac's WiFi network and open the printed LAN URL. The page is `src/page.html`, served by both the firmware and the sim.
+
+Check that the page's self-crossing test agrees with `geometry.rs` on the shared case table (not part of CI, needs `node`):
+
+```shell
+node tests/page_geometry.mjs
+```
+
 Flash a connected board and stream serial logs:
 
 ```shell

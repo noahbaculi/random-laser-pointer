@@ -1,40 +1,263 @@
 <!DOCTYPE html><html><head>
-<meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no">
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Laser</title><style>
-body{margin:0;font-family:system-ui;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;touch-action:none;-webkit-user-select:none;user-select:none}
-#pad{display:grid;grid-template-columns:repeat(3,88px);grid-template-rows:repeat(3,88px);gap:8px}
-button{font-size:34px;border:0;border-radius:14px;background:#333;color:#eee;touch-action:none}
-button:active{background:#0a84ff}
-#rtt{display:flex;align-items:center;justify-content:center;font-size:14px;color:#888;white-space:pre;text-align:center}
-#st{color:#888}
-#modes{display:flex;gap:8px;margin-bottom:16px}
-#modes button{font-size:18px;padding:12px 16px}
-#modes button.on{background:#0a84ff}
+:root{--bg:#111;--card:#1e1e1e;--btn:#2c2c2e;--fg:#eee;--dim:#8e8e93;--on:#0a84ff;--bad:#ff453a}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:system-ui;background:var(--bg);color:var(--fg);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;border:0;border-radius:12px;background:var(--btn);padding:10px 14px;touch-action:manipulation}
+button:disabled{opacity:.35}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;padding:max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom));background:var(--bg)}
+.hidden{display:none!important}
+header{display:flex;align-items:center;gap:8px;min-height:44px}
+header .title{flex:1;text-align:left;font-size:18px;font-weight:600;background:none;padding:8px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .icon{font-size:22px;background:none;padding:8px 10px}
+.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;margin:8px 0}
+.seg button{flex:1;background:none;padding:10px 0}
+.seg button.on{background:var(--on)}
+.pad{display:grid;grid-template-columns:repeat(3,min(27vw,96px));grid-auto-rows:min(27vw,96px);gap:8px;justify-content:center;touch-action:none}
+.pad button{font-size:30px;touch-action:none}
+.pad button.held{background:var(--on)}
+.rtt{display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:var(--dim);white-space:pre;font-variant-numeric:tabular-nums}
+#home .pad{flex:1;align-content:center}
+#line{text-align:center;color:var(--dim);min-height:24px;font-variant-numeric:tabular-nums}
+#picker{position:fixed;top:56px;left:16px;background:var(--card);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:5;box-shadow:0 8px 24px #000a}
+#picker button{text-align:left;background:none}
+#picker button.on{color:var(--on)}
+#shade{position:fixed;inset:0;background:#0008;z-index:9}
+#sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow:auto;background:var(--card);border-radius:16px 16px 0 0;padding:16px 16px max(16px,env(safe-area-inset-bottom));z-index:10;transform:translateY(100%);transition:transform .25s}
+#sheet.open{transform:none}
+.row{margin:14px 0}
+.row label{display:flex;justify-content:space-between;color:var(--dim);margin-bottom:6px}
+.row label b{color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--on)}
+.dual{position:relative;height:28px}
+.dual input{position:absolute;inset:0;margin:0;pointer-events:none;background:none;-webkit-appearance:none;appearance:none}
+.dual input::-webkit-slider-runnable-track{height:4px;background:#444;border-radius:2px}
+.dual input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:26px;height:26px;margin-top:-11px;border-radius:50%;background:var(--fg)}
+.dual input::-moz-range-thumb{pointer-events:auto;width:26px;height:26px;border:0;border-radius:50%;background:var(--fg)}
+.stepper{display:flex;align-items:center;gap:12px}
+.stepper span{min-width:3ch;text-align:center;font-variant-numeric:tabular-nums}
+.list{display:flex;flex-direction:column;gap:6px}
+.list button{text-align:left;display:flex;justify-content:space-between}
+.list button span{color:var(--dim)}
+.scroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+svg.sketch{width:100%;max-height:34vh;background:var(--card);border-radius:12px;display:block;margin:8px 0}
+#name{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid #333;border-radius:10px;padding:10px;-webkit-user-select:text;user-select:text}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.actions .wide{grid-column:1/-1;background:var(--on)}
+#point .pad{grid-template-columns:repeat(3,min(22vw,80px));grid-auto-rows:min(22vw,80px);margin:4px 0}
+#toast{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);background:#333;padding:10px 16px;border-radius:10px;z-index:20;max-width:90vw;text-align:center}
+#toast.bad{background:var(--bad)}
 </style></head><body>
-<h3>Laser</h3>
-<div id=modes><button data-m=random>Random</button><button data-m=manual>Manual</button><button data-m=off>Off</button></div>
-<div id=pad>
-<i></i><button data-d=up>&#9650;</button><i></i>
-<button data-d=left>&#9664;</button><div id=rtt>--</div><button data-d=right>&#9654;</button>
-<i></i><button data-d=down>&#9660;</button><i></i>
+
+<div id=home class=screen>
+<header><button class=title id=roomBtn>Laser</button><button class=icon id=gear aria-label=Settings>&#9881;</button></header>
+<div class=seg id=modes><button data-m=random>Random</button><button data-m=manual>Manual</button><button data-m=off>Off</button></div>
+<div class=pad></div>
+<div id=line>&nbsp;</div>
 </div>
-<p id=st>released</p>
+<div id=picker class=hidden></div>
+
+<div id=shade class=hidden></div>
+<div id=sheet>
+<div class=row><label>Glide <b id=glideV></b></label>
+<div class=dual id=glide data-lo=glide_min_us data-hi=glide_max_us data-min=100 data-max=20000 data-step=100><input type=range><input type=range></div></div>
+<div class=row><label>Pause <b id=dwellV></b></label>
+<div class=dual id=dwell data-lo=dwell_min_ms data-hi=dwell_max_ms data-min=0 data-max=20000 data-step=100><input type=range><input type=range></div></div>
+<div class=row><label>Active minutes</label><div class=stepper data-k=active_min data-min=1 data-max=240><button>&minus;</button><span></span><button>+</button></div></div>
+<div class=row><label>Rest minutes</label><div class=stepper data-k=rest_min data-min=0 data-max=240><button>&minus;</button><span></span><button>+</button></div></div>
+<div class=row><label>Manual speed <b id=speedV></b></label><input type=range id=speed min=50 max=2000 step=10></div>
+<div class=row><label>Rooms</label><div class=list id=rooms></div></div>
+</div>
+
+<div id=room class="screen hidden">
+<header><button class=icon data-back=home>&#8249;</button><input id=name maxlength=16 aria-label="Room name"></header>
+<svg class=sketch id=roomSketch></svg>
+<div class="scroll list" id=pointList></div>
+<div class=actions><button id=addPoint>Add point at end</button><button id=preview>Preview</button></div>
+</div>
+
+<div id=point class="screen hidden">
+<header><button class=icon data-back=room>&#8249;</button><div class=title id=pointTitle></div></header>
+<svg class=sketch id=pointSketch></svg>
+<div class=pad></div>
+<div class=actions>
+<button class=wide id=save>Save point here</button>
+<button id=prev>Prev</button><button id=next>Next</button>
+<button id=insert>Insert new after</button><button id=del>Delete</button>
+</div>
+</div>
+<div id=toast class=hidden></div>
+
 <script>
+// geometry:start
+// Mirrors geometry::self_crossing in src/geometry.rs, checked by tests/page_geometry.mjs
+function selfCrossing(pts){
+const n=pts.length;if(n<3)return false;
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1]];
+const cross=(a,b)=>a[0]*b[1]-a[1]*b[0];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
+const orient=(a,b,c)=>Math.sign(cross(sub(b,a),sub(c,a)));
+const onSeg=(p,a,b)=>orient(a,b,p)===0&&p[0]>=Math.min(a[0],b[0])&&p[0]<=Math.max(a[0],b[0])&&p[1]>=Math.min(a[1],b[1])&&p[1]<=Math.max(a[1],b[1]);
+const touch=(a,b,c,d)=>(orient(a,b,c)*orient(a,b,d)<0&&orient(c,d,a)*orient(c,d,b)<0)||onSeg(c,a,b)||onSeg(d,a,b)||onSeg(a,c,d)||onSeg(b,c,d);
+const at=i=>pts[i%n];
+for(let i=0;i<n;i++){
+const a=at(i),b=at(i+1),c=at(i+2);
+if(a[0]===b[0]&&a[1]===b[1])return true;
+// Next edge folding back over this one
+if(cross(sub(b,a),sub(c,b))===0&&dot(sub(b,a),sub(c,b))<0)return true;
+const last=i===0?n-1:n;
+for(let j=i+2;j<last;j++)if(touch(a,b,at(j),at(j+1)))return true;
+}
+return false;
+}
+// geometry:end
+
+const $=id=>document.getElementById(id);
+let S=null,edit=null,toastTimer=null;
+const json=r=>r.ok?r.json():Promise.reject(r.status);
+const get=p=>fetch(p,{cache:'no-store'});
+
+function toast(t,bad){const el=$('toast');el.textContent=t;el.className=bad?'bad':'';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='hidden',2500)}
+function show(id){for(const s of ['home','room','point'])$(s).classList.toggle('hidden',s!==id);if(id!=='point')edit=null}
+const mmss=s=>Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+
+// D-pad: hold to glide, keepalive every 120 ms, slide to change direction
 let held=null,timer=null,busy=false,pend=null,rtts=[];
-function show(r){rtts.push(r);if(rtts.length>30)rtts.shift();
-let a=rtts.reduce((x,y)=>x+y,0)/rtts.length;
-document.getElementById('rtt').textContent=r.toFixed(0)+' ms\navg '+a.toFixed(0);}
-function send(d){if(busy){pend=d;return}busy=true;let t=performance.now();
-fetch('/d?dir='+d).then(()=>show(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)}).finally(()=>{busy=false;if(pend!==null){let p=pend;pend=null;send(p)}});}
-function dn(e,d){e.preventDefault();held=d;document.getElementById('st').textContent=d;send(d);
-if(timer)clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120);}
-function up(e){e.preventDefault();if(!held)return;held=null;if(timer)clearInterval(timer);timer=null;
-document.getElementById('st').textContent='released';pend=null;send('stop');}
-function mark(m){for(const b of document.querySelectorAll('#modes button'))b.classList.toggle('on',b.dataset.m===m)}
-function poll(){fetch('/status').then(r=>r.json()).then(s=>mark(s.mode)).catch(()=>{})}
-for(const b of document.querySelectorAll('#modes button'))b.addEventListener('click',()=>{mark(b.dataset.m);fetch('/mode?m='+b.dataset.m).finally(poll)});
-poll();setInterval(poll,2000);
-for(const b of document.querySelectorAll('#pad button')){
-b.addEventListener('pointerdown',e=>dn(e,b.dataset.d));
-b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('pointerleave',up);}
+const GLYPH={upleft:'◤',up:'▲',upright:'◥',left:'◀',right:'▶',downleft:'◣',down:'▼',downright:'◢'};
+function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();const a=rtts.reduce((x,y)=>x+y,0)/rtts.length;
+for(const el of document.querySelectorAll('.rtt'))el.textContent=ms.toFixed(0)+' ms\navg '+a.toFixed(0)}
+function send(d){if(busy){pend=d;return}busy=true;const t=performance.now();
+get('/d?dir='+d).then(()=>rtt(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)})
+.finally(()=>{busy=false;if(pend!==null){const p=pend;pend=null;send(p)}})}
+function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held)}
+function press(d){held=d;mark();if(S&&S.mode!=='manual'){S.mode='manual';fillHome()}send(d);
+clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120)}
+function release(){if(!held)return;held=null;mark();clearInterval(timer);timer=null;pend=null;send('stop')}
+function dirAt(e){const el=document.elementFromPoint(e.clientX,e.clientY);const b=el&&el.closest('[data-d]');return b?b.dataset.d:null}
+for(const pad of document.querySelectorAll('.pad')){
+for(const d of ['upleft','up','upright','left',null,'right','downleft','down','downright']){
+const el=document.createElement(d?'button':'div');
+if(d){el.dataset.d=d;el.textContent=GLYPH[d];el.setAttribute('aria-label',d)}else{el.className='rtt';el.textContent='--'}
+pad.append(el)}
+pad.addEventListener('pointerdown',e=>{const d=dirAt(e);if(!d)return;e.preventDefault();pad.setPointerCapture(e.pointerId);press(d)});
+pad.addEventListener('pointermove',e=>{if(!held)return;const d=dirAt(e);if(d&&d!==held)press(d)});
+for(const t of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(t,release);
+pad.addEventListener('contextmenu',e=>e.preventDefault())}
+
+// Status
+function fill(s){S=s;fillHome();fillSheet();if(!$('room').classList.contains('hidden'))fillRoom();if(edit)fillPoint()}
+function fillHome(){
+$('roomBtn').textContent='Laser · '+S.names[S.preset]+' ▾';
+for(const b of $('modes').children)b.classList.toggle('on',b.dataset.m===S.mode);
+let line;
+if(S.mode==='random')line=S.idle==='no_area'?'Add at least 3 points to this room':'Random · '+S.phase+' · '+mmss(S.phase_remaining_s);
+else line=S.mode==='manual'?'Manual':'Off';
+$('line').textContent=line}
+let pollTimer=null;
+function poll(){clearTimeout(pollTimer);get('/status').then(json).then(fill).catch(()=>{}).finally(()=>{pollTimer=setTimeout(poll,edit?150:2000)})}
+function set(q){return get('/set?'+q).then(json).then(fill).catch(()=>toast('Setting refused',true))}
+
+for(const b of $('modes').children)b.addEventListener('click',()=>{if(S){S.mode=b.dataset.m;fillHome()}get('/mode?m='+b.dataset.m).finally(poll)});
+
+// Room picker
+$('roomBtn').addEventListener('click',()=>{const p=$('picker');if(!S)return;p.replaceChildren();
+S.names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;b.classList.toggle('on',i===S.preset);
+b.addEventListener('click',()=>{p.classList.add('hidden');set('preset='+i)});p.append(b)});
+p.classList.toggle('hidden')});
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#picker,#roomBtn'))$('picker').classList.add('hidden')});
+
+// Settings sheet
+function sheet(open){$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open)}
+$('gear').addEventListener('click',()=>sheet(true));$('shade').addEventListener('click',()=>sheet(false));
+const fmtGlide=us=>(us/1000).toFixed(1);
+const fmtDwell=ms=>(ms/1000).toFixed(1);
+function dualLabel(el){const [a,b]=el.querySelectorAll('input');const lo=Math.min(a.value,b.value),hi=Math.max(a.value,b.value);
+return el.id==='glide'?fmtGlide(lo)+'-'+fmtGlide(hi)+' ms/step':fmtDwell(lo)+'-'+fmtDwell(hi)+' s'}
+for(const el of document.querySelectorAll('.dual')){
+for(const i of el.querySelectorAll('input')){i.min=el.dataset.min;i.max=el.dataset.max;i.step=el.dataset.step;
+i.addEventListener('input',()=>$(el.id+'V').textContent=dualLabel(el));
+i.addEventListener('change',()=>{const [a,b]=el.querySelectorAll('input');
+set(el.dataset.lo+'='+Math.min(a.value,b.value)+'&'+el.dataset.hi+'='+Math.max(a.value,b.value))})}}
+for(const el of document.querySelectorAll('.stepper')){const [minus,plus]=el.querySelectorAll('button');
+const bump=d=>{if(!S)return;const v=Math.min(+el.dataset.max,Math.max(+el.dataset.min,S[el.dataset.k]+d));set(el.dataset.k+'='+v)};
+minus.addEventListener('click',()=>bump(-1));plus.addEventListener('click',()=>bump(1))}
+$('speed').addEventListener('input',()=>$('speedV').textContent=$('speed').value+'/s');
+$('speed').addEventListener('change',()=>set('manual_speed='+$('speed').value));
+function fillSheet(){
+for(const el of document.querySelectorAll('.dual')){const [a,b]=el.querySelectorAll('input');
+if(document.activeElement!==a&&document.activeElement!==b){a.value=S[el.dataset.lo];b.value=S[el.dataset.hi]}
+$(el.id+'V').textContent=dualLabel(el)}
+for(const el of document.querySelectorAll('.stepper'))el.querySelector('span').textContent=S[el.dataset.k];
+if(document.activeElement!==$('speed'))$('speed').value=S.manual_speed;
+$('speedV').textContent=$('speed').value+'/s';
+const rooms=$('rooms');rooms.replaceChildren();
+S.names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;
+const sp=document.createElement('span');sp.textContent=i===S.preset?(S.points.length+' points'):'';b.append(sp);
+b.addEventListener('click',()=>openRoom(i));rooms.append(b)})}
+
+// Sketch, flipped to match the D-pad: Left raises x, Up lowers y
+const NS='http://www.w3.org/2000/svg';
+function node(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
+function sketch(svg,saved,would,hi,bad){
+const [min,max]=S.travel,span=max-min,sx=x=>max-x,sy=y=>y-min,pts=p=>p.map(([x,y])=>sx(x)+','+sy(y)).join(' ');
+svg.setAttribute('viewBox',`0 0 ${span} ${span}`);svg.replaceChildren();
+const w=span/150;
+if(saved&&saved.length)svg.append(node('polygon',{points:pts(saved),fill:'none',stroke:'#8e8e93','stroke-width':w,'stroke-dasharray':w*4}));
+const col=bad?'#ff453a':'#0a84ff';
+if(would.length)svg.append(node('polygon',{points:pts(would),fill:bad?'rgba(255,69,58,.15)':'rgba(10,132,255,.15)',stroke:col,'stroke-width':w*1.5}));
+would.forEach(([x,y],i)=>svg.append(node('circle',{cx:sx(x),cy:sy(y),r:i===hi?w*7:w*3.5,fill:i===hi?'#ffd60a':col})));
+svg.append(node('circle',{cx:sx(S.x),cy:sy(S.y),r:w*4,fill:S.laser?'#ff453a':'none',stroke:'#ff453a','stroke-width':w}))}
+
+// Room editor
+function openRoom(i){sheet(false);set('preset='+i).then(()=>{show('room');fillRoom();$('name').value=S.names[S.preset]})}
+function fillRoom(){
+if(document.activeElement!==$('name'))$('name').value=S.names[S.preset];
+sketch($('roomSketch'),null,S.points,-1,false);
+const list=$('pointList');list.replaceChildren();
+S.points.forEach(([x,y],i)=>{const b=document.createElement('button');b.textContent='Point '+(i+1);
+const sp=document.createElement('span');sp.textContent=x+', '+y;b.append(sp);b.addEventListener('click',()=>openPoint(i,false));list.append(b)});
+if(!S.points.length){const p=document.createElement('div');p.style.color='var(--dim)';p.textContent='No points yet. Steer the laser on the home screen, then add points here.';list.append(p)}
+$('addPoint').disabled=S.points.length>=16;$('preview').disabled=S.points.length<3}
+$('name').addEventListener('blur',()=>{const v=$('name').value.trim();if(S&&v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v))});
+$('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
+$('addPoint').addEventListener('click',()=>{const pts=S.points.concat([[S.x,S.y]]);savePoints(pts).then(ok=>{if(ok)openPoint(pts.length-1,false)})});
+$('preview').addEventListener('click',()=>get('/preview').then(poll));
+for(const b of document.querySelectorAll('[data-back]'))b.addEventListener('click',()=>{release();show(b.dataset.back);if(b.dataset.back==='room')fillRoom();poll()});
+
+// Point editor. `edit.i` is the point, or the one a new point goes after when inserting
+function wouldBe(){const p=S.points.slice(),live=[S.x,S.y];if(edit.insert)p.splice(edit.i+1,0,live);else p[edit.i]=live;return p}
+function openPoint(i,insert){
+const n=S.points.length;if(!n)return;
+i=(i+n)%n;edit={i,insert};
+const a=S.points[i],b=S.points[(i+1)%n];
+const to=insert?[Math.round((a[0]+b[0])/2),Math.round((a[1]+b[1])/2)]:a;
+get('/goto?x='+to[0]+'&y='+to[1]).finally(poll);
+show('point');fillPoint()}
+function fillPoint(){
+const n=S.points.length;if(edit.i>=n&&n){edit.i=n-1;edit.insert=false}
+const would=wouldBe(),bad=selfCrossing(would),hi=edit.insert?edit.i+1:edit.i;
+$('pointTitle').textContent=edit.insert?'New point after '+(edit.i+1):'Point '+(edit.i+1)+' of '+n;
+sketch($('pointSketch'),S.points,would,hi,bad);
+$('save').disabled=bad||(edit.insert&&n>=16);$('save').textContent=bad?'Crosses itself':'Save point here';
+$('insert').disabled=n>=16||edit.insert}
+function savePoints(pts){
+if(selfCrossing(pts)){toast('That outline crosses itself',true);return Promise.resolve(false)}
+const q='r='+S.preset+'&p='+pts.map(p=>p.join(',')).join(';');
+return get('/points?'+q).then(r=>{
+if(r.ok)return r.json().then(s=>{fill(s);return true});
+toast(r.status===409?'Room changed elsewhere, reopen it':'Points refused',true);return false})
+.catch(()=>{toast('No connection',true);return false})}
+$('save').addEventListener('click',()=>{const hi=edit.insert?edit.i+1:edit.i;savePoints(wouldBe()).then(ok=>{if(ok){edit={i:hi,insert:false};toast('Saved');fillPoint()}})});
+$('prev').addEventListener('click',()=>openPoint(edit.insert?edit.i:edit.i-1,false));
+$('next').addEventListener('click',()=>openPoint(edit.i+1,false));
+$('insert').addEventListener('click',()=>openPoint(edit.i,true));
+$('del').addEventListener('click',()=>{
+if(edit.insert){show('room');fillRoom();return}
+const pts=S.points.filter((_,i)=>i!==edit.i);
+savePoints(pts).then(ok=>{if(ok){show('room');fillRoom()}})});
+
+poll();
 </script></body></html>
