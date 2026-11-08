@@ -70,6 +70,7 @@ The page polls `GET /status`. The same API takes every tuning value and room out
 curl 'http://laser.pointer/status'                                  # mode, phase, idle reason, previewing, position, points per room (counts), active room's points, all settings as JSON
 curl 'http://laser.pointer/mode?m=off'                              # random, manual, or off
 curl 'http://laser.pointer/d?dir=upleft'                            # up, down, left, right, the 4 diagonals, or stop
+curl 'http://laser.pointer/d?dir=up&fine=1'                        # quarter speed, for aiming points
 curl 'http://laser.pointer/goto?x=900&y=1200'                       # glide straight to a duty-count position in Manual
 curl 'http://laser.pointer/set?preset=1&name=Bedroom'               # switch room, then rename it
 curl 'http://laser.pointer/points?r=1&p=900,900;1500,900;1500,1500' # replace the active room's outline, empty p clears it

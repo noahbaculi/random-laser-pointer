@@ -151,6 +151,8 @@ pub struct Controller {
     y: u16,
     dir: Dir,
     dir_at_us: u64,
+    // Quarter-speed D-pad
+    fine: bool,
     next_tick_us: u64,
     // Manual position in thousandths of a count
     manual_x: u32,
@@ -177,6 +179,7 @@ impl Controller {
             y: travel.center(),
             dir: Dir::Stop,
             dir_at_us: 0,
+            fine: false,
             next_tick_us: 0,
             manual_x: 0,
             manual_y: 0,
@@ -205,8 +208,10 @@ impl Controller {
         }
     }
 
-    /// Applies a D-pad command. Any direction but `Stop` takes over into Manual and cancels a glide
-    pub fn manual(&mut self, dir: Dir, now_us: u64) {
+    /// Applies a D-pad command. Any direction but `Stop` takes over into Manual and cancels a glide.
+    /// `fine` quarters the D-pad speed from the next tick
+    pub fn manual(&mut self, dir: Dir, fine: bool, now_us: u64) {
+        self.fine = fine;
         if dir != Dir::Stop && self.mode != Mode::Manual {
             self.mode = Mode::Manual;
             self.dir = Dir::Stop;
@@ -455,10 +460,12 @@ impl Controller {
         let delta = settings.manual_speed as u32 * (MANUAL_TICK_US / 1000) as u32;
         let mut traced = false;
         let p = match self.drive {
-            Drive::Dpad => self.nudge(delta),
+            Drive::Dpad => self.nudge(if self.fine { delta / 4 } else { delta }),
             Drive::Goto(mut line) => {
                 let p = line.advance(self.glide_counts(delta));
                 self.drive = if line.done() {
+                    self.manual_x = p.x as u32 * MILLI;
+                    self.manual_y = p.y as u32 * MILLI;
                     Drive::Dpad
                 } else {
                     Drive::Goto(line)
@@ -475,10 +482,6 @@ impl Controller {
                 p
             }
         };
-        if self.drive == Drive::Dpad {
-            self.manual_x = p.x as u32 * MILLI;
-            self.manual_y = p.y as u32 * MILLI;
-        }
         let (x, y) = (self.move_x(p.x), self.move_y(p.y));
         if traced {
             self.set_mode(Mode::Random, now_us, settings);
@@ -703,7 +706,7 @@ mod tests {
             (&mut from_off, 5 * S),
             (&mut from_rest, 700 * S),
         ] {
-            c.manual(Dir::Up, t);
+            c.manual(Dir::Up, false, t);
             let st = c.status(t);
             assert_eq!(st.mode, Mode::Manual);
             assert!(st.laser);
@@ -715,7 +718,7 @@ mod tests {
     fn dpad_stop_does_not_switch() {
         let s = settings();
         let mut c = boot(&s);
-        c.manual(Dir::Stop, S);
+        c.manual(Dir::Stop, false, S);
         assert_eq!(c.status(S).mode, Mode::Random);
     }
 
@@ -724,11 +727,51 @@ mod tests {
         let s = settings();
         let mut c = boot(&s);
         let t = 5 * S;
-        c.manual(Dir::Up, t);
+        c.manual(Dir::Up, false, t);
         let out = c.step(t + 20 * MS, &s);
         assert_eq!(out.y, Some(T.center() - 9));
         assert_eq!(out.x, None);
         assert_eq!(out.next_us, Some(t + 40 * MS));
+    }
+
+    #[test]
+    fn fine_moves_quarter_speed() {
+        let s = settings();
+        let mut c = boot(&s);
+        let t = 5 * S;
+        c.manual(Dir::Up, true, t);
+        for k in 1..=4 {
+            c.step(t + k * 20 * MS, &s);
+        }
+        assert_eq!(c.y, T.center() - 9);
+    }
+
+    #[test]
+    fn fine_change_applies_next_tick() {
+        let s = settings();
+        let mut c = boot(&s);
+        let t = 5 * S;
+        c.manual(Dir::Up, true, t);
+        for k in 1..=4 {
+            c.step(t + k * 20 * MS, &s);
+        }
+        assert_eq!(c.y, T.center() - 9);
+        c.manual(Dir::Up, false, t + 80 * MS);
+        c.step(t + 100 * MS, &s);
+        assert_eq!(c.y, T.center() - 18);
+    }
+
+    #[test]
+    fn fine_ignored_by_goto() {
+        let s = settings();
+        let ticks = |fine: bool| {
+            let mut c = boot(&s);
+            c.manual(Dir::Up, fine, S);
+            c.goto(p(1500, 1000), S);
+            glide(&mut c, &s, S).1.len()
+        };
+        assert_eq!(ticks(true), ticks(false));
+        assert_eq!(ticks(true), 1 + 272usize.div_ceil(9));
     }
 
     #[test]
@@ -742,7 +785,7 @@ mod tests {
             (Dir::Left, Some(c0 + 9), None),
         ] {
             let mut c = boot(&s);
-            c.manual(dir, t);
+            c.manual(dir, false, t);
             let out = c.step(t + 20 * MS, &s);
             assert_eq!((out.x, out.y), (x, y), "{dir:?}");
         }
@@ -756,7 +799,7 @@ mod tests {
         // Full travel at 450 counts/s takes about 3.3 s
         while t < 6 * S {
             if t.is_multiple_of(100 * MS) {
-                c.manual(Dir::Left, t);
+                c.manual(Dir::Left, false, t);
             }
             c.step(t, &s);
             t += 20 * MS;
@@ -770,7 +813,7 @@ mod tests {
         let s = settings();
         let mut c = boot(&s);
         let t = 5 * S;
-        c.manual(Dir::Up, t);
+        c.manual(Dir::Up, false, t);
         let mut ys = Vec::new();
         for i in 1..=20 {
             let now = t + i * 20 * MS;
@@ -788,7 +831,7 @@ mod tests {
     fn manual_stays_until_mode_change() {
         let s = settings();
         let mut c = boot(&s);
-        c.manual(Dir::Up, S);
+        c.manual(Dir::Up, false, S);
         c.step(S + 20 * MS, &s);
         let later = S + 600 * S;
         c.step(later, &s);
@@ -994,7 +1037,7 @@ mod tests {
             (Dir::DownRight, c0 - 9, c0 + 9),
         ] {
             let mut c = boot(&s);
-            c.manual(dir, t);
+            c.manual(dir, false, t);
             let out = c.step(t + 20 * MS, &s);
             assert_eq!((out.x, out.y), (Some(x), Some(y)), "{dir:?}");
         }
@@ -1039,7 +1082,7 @@ mod tests {
         c.goto(p(1500, 1500), S);
         c.step(S + 20 * MS, &s);
         let y = c.y;
-        c.manual(Dir::Up, S + 30 * MS);
+        c.manual(Dir::Up, false, S + 30 * MS);
         assert_eq!(c.target(), None);
         c.step(S + 40 * MS, &s);
         c.step(S + 60 * MS, &s);
@@ -1100,7 +1143,7 @@ mod tests {
         assert!(!c.status(0).previewing);
         c.preview(S, &s);
         assert!(c.status(S).previewing);
-        c.manual(Dir::Up, S);
+        c.manual(Dir::Up, false, S);
         assert!(!c.status(S).previewing);
         c.preview(2 * S, &s);
         assert!(c.status(2 * S).previewing);
@@ -1128,8 +1171,8 @@ mod tests {
     fn preview_below_three_is_noop() {
         let s = with_outline(&L[..2]);
         let mut c = boot(&s);
-        c.manual(Dir::Up, S);
-        c.manual(Dir::Stop, S);
+        c.manual(Dir::Up, false, S);
+        c.manual(Dir::Stop, false, S);
         let before = (c.x, c.y);
         c.preview(2 * S, &s);
         assert_eq!(c.target(), None);

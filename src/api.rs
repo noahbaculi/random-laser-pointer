@@ -12,7 +12,11 @@ pub const STATUS_BUF_LEN: usize = 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route<'a> {
     Page,
-    Dpad(Dir),
+    /// `fine` moves at a quarter of `manual_speed`
+    Dpad {
+        dir: Dir,
+        fine: bool,
+    },
     Mode(Mode),
     /// Raw query string, still percent-encoded
     Set(&'a str),
@@ -76,18 +80,9 @@ pub fn route(request: &str) -> Route<'_> {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     match path {
         "/" => Route::Page,
-        "/d" => match query {
-            "dir=up" => Route::Dpad(Dir::Up),
-            "dir=down" => Route::Dpad(Dir::Down),
-            "dir=left" => Route::Dpad(Dir::Left),
-            "dir=right" => Route::Dpad(Dir::Right),
-            "dir=upleft" => Route::Dpad(Dir::UpLeft),
-            "dir=upright" => Route::Dpad(Dir::UpRight),
-            "dir=downleft" => Route::Dpad(Dir::DownLeft),
-            "dir=downright" => Route::Dpad(Dir::DownRight),
-            "dir=stop" => Route::Dpad(Dir::Stop),
-            _ => Route::BadRequest,
-        },
+        "/d" => {
+            parse_dpad(query).map_or(Route::BadRequest, |(dir, fine)| Route::Dpad { dir, fine })
+        }
         "/mode" => match query {
             "m=random" => Route::Mode(Mode::Random),
             "m=manual" => Route::Mode(Mode::Manual),
@@ -101,6 +96,39 @@ pub fn route(request: &str) -> Route<'_> {
         "/points" => Route::Points(query),
         _ => Route::NotFound,
     }
+}
+
+/// Parses `dir=<name>` and an optional `fine=0|1` in either order
+fn parse_dpad(query: &str) -> Option<(Dir, bool)> {
+    let (mut dir, mut fine) = (None, None);
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        match key {
+            "dir" if dir.is_none() => {
+                dir = Some(match value {
+                    "up" => Dir::Up,
+                    "down" => Dir::Down,
+                    "left" => Dir::Left,
+                    "right" => Dir::Right,
+                    "upleft" => Dir::UpLeft,
+                    "upright" => Dir::UpRight,
+                    "downleft" => Dir::DownLeft,
+                    "downright" => Dir::DownRight,
+                    "stop" => Dir::Stop,
+                    _ => return None,
+                })
+            }
+            "fine" if fine.is_none() => {
+                fine = Some(match value {
+                    "0" => false,
+                    "1" => true,
+                    _ => return None,
+                })
+            }
+            _ => return None,
+        }
+    }
+    Some((dir?, fine.unwrap_or(false)))
 }
 
 /// Parses `x=N&y=N` in either order
@@ -144,8 +172,8 @@ pub fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
     let outcome = match route {
         Route::Page => done(Reply::Page),
         Route::Status => done(Reply::Status),
-        Route::Dpad(dir) => {
-            c.manual(dir, now_us);
+        Route::Dpad { dir, fine } => {
+            c.manual(dir, fine, now_us);
             act
         }
         Route::Mode(mode) => {
@@ -353,8 +381,20 @@ mod tests {
     #[test]
     fn routes() {
         assert_eq!(route(&req("/")), Route::Page);
-        assert_eq!(route(&req("/d?dir=up")), Route::Dpad(Dir::Up));
-        assert_eq!(route(&req("/d?dir=stop")), Route::Dpad(Dir::Stop));
+        assert_eq!(
+            route(&req("/d?dir=up")),
+            Route::Dpad {
+                dir: Dir::Up,
+                fine: false
+            }
+        );
+        assert_eq!(
+            route(&req("/d?dir=stop")),
+            Route::Dpad {
+                dir: Dir::Stop,
+                fine: false
+            }
+        );
         assert_eq!(route(&req("/d?dir=sideways")), Route::BadRequest);
         assert_eq!(route(&req("/mode?m=off")), Route::Mode(Mode::Off));
         assert_eq!(route(&req("/mode?m=random")), Route::Mode(Mode::Random));
@@ -524,11 +564,52 @@ mod tests {
     }
 
     #[test]
+    fn routes_dpad_fine() {
+        let dpad = |dir, fine| Route::Dpad { dir, fine };
+        assert_eq!(route(&req("/d?dir=up&fine=1")), dpad(Dir::Up, true));
+        assert_eq!(route(&req("/d?fine=1&dir=left")), dpad(Dir::Left, true));
+        assert_eq!(route(&req("/d?dir=up")), dpad(Dir::Up, false));
+        assert_eq!(route(&req("/d?dir=up&fine=0")), dpad(Dir::Up, false));
+        for q in [
+            "/d?dir=up&fine=2",
+            "/d?fine=1",
+            "/d?dir=up&x=1",
+            "/d?dir=up&dir=down",
+        ] {
+            assert_eq!(route(&req(q)), Route::BadRequest, "{q}");
+        }
+    }
+
+    #[test]
     fn routes_new() {
-        assert_eq!(route(&req("/d?dir=upleft")), Route::Dpad(Dir::UpLeft));
-        assert_eq!(route(&req("/d?dir=upright")), Route::Dpad(Dir::UpRight));
-        assert_eq!(route(&req("/d?dir=downleft")), Route::Dpad(Dir::DownLeft));
-        assert_eq!(route(&req("/d?dir=downright")), Route::Dpad(Dir::DownRight));
+        assert_eq!(
+            route(&req("/d?dir=upleft")),
+            Route::Dpad {
+                dir: Dir::UpLeft,
+                fine: false
+            }
+        );
+        assert_eq!(
+            route(&req("/d?dir=upright")),
+            Route::Dpad {
+                dir: Dir::UpRight,
+                fine: false
+            }
+        );
+        assert_eq!(
+            route(&req("/d?dir=downleft")),
+            Route::Dpad {
+                dir: Dir::DownLeft,
+                fine: false
+            }
+        );
+        assert_eq!(
+            route(&req("/d?dir=downright")),
+            Route::Dpad {
+                dir: Dir::DownRight,
+                fine: false
+            }
+        );
         assert_eq!(
             route(&req("/goto?x=900&y=1000")),
             Route::Goto(pt(900, 1000))
@@ -656,7 +737,13 @@ mod tests {
         };
         assert_eq!(flags(Route::Page), (Reply::Page, false, false));
         assert_eq!(flags(Route::Status), (Reply::Status, false, false));
-        assert_eq!(flags(Route::Dpad(Dir::Up)), (Reply::NoContent, true, false));
+        assert_eq!(
+            flags(Route::Dpad {
+                dir: Dir::Up,
+                fine: false
+            }),
+            (Reply::NoContent, true, false)
+        );
         assert_eq!(
             flags(Route::Set("manual_speed=600")),
             (Reply::Status, true, true)

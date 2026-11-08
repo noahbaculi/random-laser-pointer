@@ -79,7 +79,7 @@ async fn respond(socket: &mut TcpSocket<'_>, route: Route<'_>) -> bool {
     let Some(out) = with_state(|s| api::dispatch(route, s, now_us())) else {
         return socket.write_all(BAD_REQUEST).await.is_ok();
     };
-    if !matches!(route, Route::Status | Route::Page | Route::Dpad(_)) {
+    if !matches!(route, Route::Status | Route::Page | Route::Dpad { .. }) {
         log::info!("{route:?} -> {:?}", out.reply);
     }
     if out.wake {
