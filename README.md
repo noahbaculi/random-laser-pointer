@@ -139,7 +139,7 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 - [x] Stop or restart a preview when the room changes mid-trace, instead of tracing the new room from the old leg
 - [x] Poll once before Save in the point editor, so a save right after releasing the D-pad uses the final position
 - [ ] Hint how to add point 2 after saving the first one, since ‹ and › do nothing with one point
-- [ ] Shade the range between dual slider thumbs, keep the thumbs from crossing, and label Random speed as a range ("Medium to Fast")
+- [x] Shade the range between dual slider thumbs, keep the thumbs from crossing, and label Random speed as a range ("Medium to Fast")
 - [ ] Draw the live laser dot on the outline sketch during a preview
 - [ ] Upgrade to bigger, more robust, servos
 - [x] Redesign main enclosure with wall mounting keyholes

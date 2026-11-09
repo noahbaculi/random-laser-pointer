@@ -68,12 +68,15 @@ input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--lin
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:32px;height:32px;margin-top:-14px;border-radius:50%;background:var(--fg)}
 input[type=range]::-moz-range-track{height:4px;background:var(--line);border-radius:2px}
 input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radius:50%;background:var(--fg)}
-.dual{position:relative;height:38px}
+.dual{position:relative;height:38px;isolation:isolate}
 .dual input{position:absolute;left:0;right:0;top:0;pointer-events:none}
 .dual input::-webkit-slider-thumb{pointer-events:auto}
 .dual input::-moz-range-thumb{pointer-events:auto}
-.dual input+input::-webkit-slider-runnable-track{background:none}
-.dual input+input::-moz-range-track{background:none}
+.dual input::-webkit-slider-runnable-track{background:none}
+.dual input::-moz-range-track{background:none}
+.dual::before,.dual::after{content:'';position:absolute;pointer-events:none;z-index:-1;top:20px;height:4px;border-radius:2px}
+.dual::before{left:0;right:0;background:var(--line)}
+.dual::after{left:calc(16px + (100% - 32px)*var(--lo,0));right:calc(16px + (100% - 32px)*(1 - var(--hi,1)));background:var(--on)}
 .stepper{display:flex;align-items:center;gap:10px}
 .stepper button{width:44px;padding:0;font-size:20px;background:var(--line)}
 .stepper b{min-width:4.5ch;text-align:center}
@@ -328,14 +331,19 @@ const secs=ms=>ms%1000?(ms/1000).toFixed(1):String(ms/1000);
 const DUAL={
 glide:{get:()=>[20100-S.glide_max_us,20100-S.glide_min_us],
 q:(lo,hi)=>'glide_min_us='+(20100-hi)+'&glide_max_us='+(20100-lo),
-label:(lo,hi)=>{const t=((lo+hi)/2-100)/19900;return t<1/3?'Slow':t<2/3?'Medium':'Fast'}},
+label:(lo,hi)=>{const w=v=>{const t=(v-100)/19900;return t<1/3?'Slow':t<2/3?'Medium':'Fast'};return w(lo)===w(hi)?w(lo):w(lo)+' to '+w(hi)}},
 dwell:{get:()=>[S.dwell_min_ms,S.dwell_max_ms],
 q:(lo,hi)=>'dwell_min_ms='+lo+'&dwell_max_ms='+hi,
 label:(lo,hi)=>(lo===hi?secs(lo):secs(lo)+'-'+secs(hi))+' s'}};
-function thumbs(e){const [a,b]=e.querySelectorAll('input');return [Math.min(+a.value,+b.value),Math.max(+a.value,+b.value)]}
-for(const [id,d] of Object.entries(DUAL)){const e=$(id);
-for(const i of e.querySelectorAll('input')){
-i.addEventListener('input',()=>$(id+'V').textContent=d.label(...thumbs(e)));
+function thumbs(e){const [a,b]=e.querySelectorAll('input');return [+a.value,+b.value]}
+// Shade the range between the thumbs
+function paint(e){const [a]=e.querySelectorAll('input'),f=v=>(v-a.min)/(a.max-a.min),[lo,hi]=thumbs(e);
+e.style.setProperty('--lo',f(lo));e.style.setProperty('--hi',f(hi))}
+for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input'),step=+a.step;
+for(const i of [a,b]){
+// Keep one step between the thumbs so stacked thumbs stay grabbable
+i.addEventListener('input',()=>{if(i===a)a.value=Math.min(+a.value,+b.value-step);else b.value=Math.max(+b.value,+a.value+step);
+paint(e);$(id+'V').textContent=d.label(...thumbs(e))});
 i.addEventListener('change',()=>set(d.q(...thumbs(e))))}}
 const crosses=v=>{const n=(S.travel[1]-S.travel[0])/v;return 'Crosses in '+(n<10?n.toFixed(1):Math.round(n))+' s'};
 $('speed').addEventListener('input',()=>$('speedV').textContent=crosses(+$('speed').value));
@@ -356,7 +364,7 @@ c.textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms 
 function fillSheet(){renderConnRow();if(!S)return;
 for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input');
 if(document.activeElement!==a&&document.activeElement!==b)[a.value,b.value]=d.get();
-$(id+'V').textContent=d.label(...thumbs(e))}
+paint(e);$(id+'V').textContent=d.label(...thumbs(e))}
 for(const e of document.querySelectorAll('.stepper')){if(!e._busy){e._v=S[e.dataset.k];e.querySelector('b').textContent=e._v+' min'}}
 if(document.activeElement!==$('speed'))$('speed').value=S.manual_speed;
 $('speedV').textContent=crosses(+$('speed').value)}
