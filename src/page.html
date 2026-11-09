@@ -34,7 +34,14 @@ body.offline .seg button[aria-pressed=true]{background:var(--line);color:var(--f
 .link{background:none;color:var(--on);text-decoration:underline;padding:0 6px;font-size:14px}
 .body{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
 .sk{flex:1;min-height:0;position:relative;background:var(--sketch);border-radius:14px}
-.sk svg{position:absolute;inset:0;width:100%;height:100%}
+.sk svg{position:absolute;inset:0;width:100%;height:100%;--c:var(--on)}
+.sk svg.bad{--c:var(--bad)}
+.sk .saved{fill:none;stroke:var(--line)}
+.sk .area{fill:var(--c);stroke:var(--c)}
+.sk circle{fill:var(--c)}
+.sk .hi{fill:var(--warn)}
+.sk .bad .hi{fill:var(--bad)}
+.sk text{fill:var(--fg)}
 .actions{display:flex;gap:8px}
 .actions button{flex:1}
 .primary{background:var(--on);color:var(--ink);font-weight:700}
@@ -188,7 +195,6 @@ return false;
 
 const $=id=>document.getElementById(id);
 const NS='http://www.w3.org/2000/svg';
-const C={line:'#3a3150',on:'#b48cff',bad:'#ff6b6b',warn:'#ffb35c',fg:'#f3effa'};
 // Last good status, its arrival time, and recent round trips in ms
 let S=null,lastOkAt=0,offline=false,fails=0,rtts=[],edit=null,pendingMode=null,toastTimer=null;
 
@@ -205,11 +211,9 @@ function visible(id){return !$(id).classList.contains('hidden')}
 function show(id){for(const s of ['home','outline','point'])$(s).classList.toggle('hidden',s!==id);fineAim(false);release();if(id!=='point')edit=null;render()}
 function rebuildIfChanged(e,key,build){if(e._key===key)return;e._key=key;build()}
 
-function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();renderQuality()}
+function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();renderConn()}
 const avgRtt=()=>rtts.reduce((a,b)=>a+b,0)/(rtts.length||1);
 function quality(){return offline?'Offline':!rtts.length?'--':avgRtt()<200?'OK':'Weak'}
-function renderQuality(){renderConnRow();for(const q of document.querySelectorAll('.pad .q'))q.lastChild.textContent=quality();
-for(const d of document.querySelectorAll('.pad .q .dot'))d.className='dot '+(offline?'bad':quality()==='Weak'?'warn':'ok')}
 
 // Status polling
 let pollTimer=null,seq=0,applied=0;
@@ -219,16 +223,20 @@ return get('/status').then(json).then(s=>{rtt(performance.now()-t);fails=0;lastO
 .catch(()=>{if(++fails>=2)setOffline(true);render()})
 .finally(()=>{clearTimeout(pollTimer);pollTimer=setTimeout(poll,pollDelay())})}
 function setOffline(v){if(v===offline)return;offline=v;document.body.classList.toggle('offline',v);
-for(const e of document.querySelectorAll('.live'))e.inert=v;if(v){release();$('toast').className='hidden'}renderQuality()}
+for(const e of document.querySelectorAll('.live'))e.inert=v;if(v){release();$('toast').className='hidden'}renderConn()}
 function fill(s){S=s;render()}
 // Mutation replies are newer than any poll still in flight
 function fillNow(s){applied=++seq;fill(s)}
 function render(){if(visible('home'))renderHome();if(visible('outline'))fillOutline();if(visible('point')&&edit&&S)fillPoint();renderConn();fillSheet()}
-function renderConn(){const c=$('conn');c.className='dot '+(offline?'bad':S?'ok':'');c.setAttribute('aria-label',offline?'Offline':S?'Connected':'Connecting')}
+// Header dot, settings row, and pad quality labels
+function renderConn(){const c=$('conn'),q=quality();c.className='dot '+(offline?'bad':S?'ok':'');c.setAttribute('aria-label',offline?'Offline':S?'Connected':'Connecting');
+$('connV').textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms · avg '+avgRtt().toFixed(0):'--';
+for(const e of document.querySelectorAll('.pad .q')){e.firstChild.className='dot '+(offline?'bad':q==='Weak'?'warn':'ok');e.lastChild.textContent=q}}
 
-// Settings changes. Network failure and refusal toast differently
-function set(q){return get('/set?'+q).then(r=>{if(r.status===400){toast('Setting refused',true);return false}
-if(!r.ok)throw r.status;return r.json().then(s=>{fillNow(s);return true})}).catch(()=>{toast('No connection',true);return false})}
+// Runs a settings change and fills its reply. `refused` maps a refusal status to its toast
+function apply(path,refused){return get(path).then(r=>{if(!r.ok){toast(refused(r.status),true);return false}
+return r.json().then(s=>{fillNow(s);return true})}).catch(()=>{toast('No connection',true);return false})}
+function set(q){return apply('/set?'+q,()=>'Setting refused')}
 
 // Home
 function shownMode(){return S.mode==='random'||(S.mode==='manual'&&S.previewing)?'random':S.mode}
@@ -283,20 +291,20 @@ $('editOutline').addEventListener('click',()=>openOutline());
 $('homePreview').addEventListener('click',togglePreview);
 
 // D-pad: hold to glide, keepalive every 120 ms, slide to change direction
-// `stopped` resolves once the send queue drains after the last release
-let fineOn=false,held=null,heldPad=null,timer=null,busy=false,pend=null,stopped=Promise.resolve(),idle=null;
+// `busy` is the request in flight, `pend` the direction queued behind it
+let fineOn=false,held=null,heldPad=null,timer=null,busy=null,pend=null;
 const GLYPH={upleft:'◤',up:'▲',upright:'◥',left:'◀',right:'▶',downleft:'◣',down:'▼',downright:'◢'};
 const NAME={upleft:'Up left',up:'Up',upright:'Up right',left:'Left',right:'Right',downleft:'Down left',down:'Down',downright:'Down right'};
 // Fine aim only on the point editor's D-pad
 function dpadQuery(d){return '/d?dir='+d+(fineOn&&heldPad===$('pointPad')?'&fine=1':'')}
-function send(d){if(busy){pend=d;return}busy=true;const t=performance.now();
-get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{})
-.finally(()=>{busy=false;if(pend!==null){const p=pend;pend=null;send(p)}else if(idle){const f=idle;idle=null;f()}})}
+// Resolves once this direction and anything queued behind it are sent
+function send(d){if(busy){pend=d;return busy}const t=performance.now();
+return busy=get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{})
+.finally(()=>{busy=null;if(pend!==null){const p=pend;pend=null;return send(p)}})}
 function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held&&b.parentNode===heldPad)}
 function press(pad,d){held=d;heldPad=pad;mark();send(d);if(visible('point')&&edit)edit.moved=true;
 clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120)}
-function release(){if(!held)return stopped;held=null;mark();clearInterval(timer);timer=null;pend=null;
-stopped=new Promise(res=>{const prev=idle;idle=()=>{if(prev)prev();res()}});send('stop');return stopped}
+function release(){if(!held)return busy||Promise.resolve();held=null;mark();clearInterval(timer);timer=null;pend=null;return send('stop')}
 function dirAt(e){const t=document.elementFromPoint(e.clientX,e.clientY);const b=t&&t.closest('[data-d]');return b?b.dataset.d:null}
 for(const pad of document.querySelectorAll('.pad')){
 for(const d of ['upleft','up','upright','left',null,'right','downleft','down','downright']){
@@ -320,13 +328,13 @@ else{x0=X(S.travel[1]);x1=X(S.travel[0]);y0=S.travel[0];y1=S.travel[1]}
 const m=numbered?Math.max(120,0.18*Math.max(x1-x0,y1-y0)):Math.max(60,0.1*Math.max(x1-x0,y1-y0)),w=x1-x0+2*m,h=y1-y0+2*m,u=Math.max(w,h)/150;
 svg.setAttribute('viewBox',`${x0-m} ${y0-m} ${w} ${h}`);svg.replaceChildren();
 const P=p=>p.map(([x,y])=>X(x)+','+y).join(' ');
-if(saved&&saved.length)svg.append(node('polygon',{points:P(saved),fill:'none',stroke:C.line,'stroke-width':u*1.5,'stroke-dasharray':u*4}));
-const col=bad?C.bad:C.on;
-if(would.length)svg.append(node('polygon',{points:P(would),fill:col,'fill-opacity':.13,stroke:col,'stroke-width':u*1.5,'stroke-linejoin':'round'}));
+svg.classList.toggle('bad',bad);
+if(saved&&saved.length)svg.append(node('polygon',{points:P(saved),class:'saved','stroke-width':u*1.5,'stroke-dasharray':u*4}));
+if(would.length)svg.append(node('polygon',{points:P(would),class:'area','fill-opacity':.13,'stroke-width':u*1.5,'stroke-linejoin':'round'}));
 const cx=would.reduce((a,p)=>a+X(p[0]),0)/(would.length||1),cy=would.reduce((a,p)=>a+p[1],0)/(would.length||1);
-would.forEach(([x,y],i)=>{svg.append(node('circle',{cx:X(x),cy:y,r:i===hi?u*6:u*3,fill:i===hi?(bad?C.bad:C.warn):col}));
+would.forEach(([x,y],i)=>{svg.append(node('circle',{cx:X(x),cy:y,r:i===hi?u*6:u*3,class:i===hi?'hi':''}));
 if(numbered){let dx=X(x)-cx,dy=y-cy,l=Math.hypot(dx,dy);if(l<1){dx=0;dy=-1;l=1}
-const t=node('text',{x:X(x)+dx/l*u*10,y:y+dy/l*u*10+u*3,'font-size':u*9,fill:C.fg,'text-anchor':'middle'});t.textContent=i+1;svg.append(t)}})}
+const t=node('text',{x:X(x)+dx/l*u*10,y:y+dy/l*u*10+u*3,'font-size':u*9,'text-anchor':'middle'});t.textContent=i+1;svg.append(t)}})}
 
 // Settings sheet
 function sheet(open){$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open);if(open)$('done').focus();else if($('sheet').contains(document.activeElement))document.activeElement.blur()}
@@ -366,8 +374,7 @@ b.addEventListener('pointerdown',ev=>{ev.preventDefault();bump(d);stop();rep=set
 for(const t of ['pointerup','pointerleave','pointercancel'])b.addEventListener(t,stop);
 // Keyboard activation only, pointer taps already stepped
 b.addEventListener('click',ev=>{if(ev.detail===0)bump(d)})}}
-function renderConnRow(){$('connV').textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms · avg '+avgRtt().toFixed(0):'--'}
-function fillSheet(){renderConnRow();if(!S)return;
+function fillSheet(){if(!S)return;
 for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input');
 if(document.activeElement!==a&&document.activeElement!==b)[a.value,b.value]=d.get();
 paint(e);$(id+'V').textContent=d.label(...thumbs(e))}
@@ -445,11 +452,7 @@ $('prev').disabled=$('next').disabled=edit.kind==='point'?n<2:n<1;
 const ins=$('insert');ins.classList.toggle('hidden',edit.kind!=='point'||n<2||n>=16);ins.textContent='+ Insert after '+N}
 function savePoints(p,room){
 if(selfCrossing(p)){toast('That outline crosses itself',true);return Promise.resolve(false)}
-const q='r='+room+'&p='+p.map(v=>v.join(',')).join(';');
-return get('/points?'+q).then(r=>{
-if(r.ok)return r.json().then(s=>{fillNow(s);return true});
-toast(r.status===409?'Room changed elsewhere, reopen it':'Points refused',true);return false})
-.catch(()=>{toast('No connection',true);return false})}
+return apply('/points?r='+room+'&p='+p.map(v=>v.join(',')).join(';'),st=>st===409?'Room changed elsewhere, reopen it':'Points refused')}
 // Wait for the D-pad stop and a fresh position, so the save lands where the laser stopped
 function savePoint(){return release().then(poll).then(()=>{if(!edit)return false;const inv=invalid();if(inv){toast(inv,true);return false}
 const li=liveIndex();return savePoints(wouldBe(),edit.room).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false,room:edit.room};render()}return ok})})}
