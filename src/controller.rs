@@ -196,7 +196,10 @@ impl Controller {
     /// Switches mode. Entering Random, or picking it during rest, restarts the active phase
     pub fn set_mode(&mut self, mode: Mode, now_us: u64, settings: &Settings) {
         let resting = self.mode == Mode::Random && self.phase == Phase::Rest;
-        if mode == self.mode && !(mode == Mode::Random && resting) {
+        let previewing = matches!(self.drive, Drive::Preview { .. });
+        if mode == self.mode
+            && !(mode == Mode::Random && resting || mode == Mode::Manual && previewing)
+        {
             return;
         }
         self.mode = mode;
@@ -243,22 +246,23 @@ impl Controller {
     /// Switches to Manual and traces the active outline, then resumes Random from its first point.
     /// Does nothing below 3 points
     pub fn preview(&mut self, now_us: u64, settings: &Settings) {
-        let Some(&first) = settings.outline().points().first() else {
+        let &[first, _, _, ..] = settings.outline().points() else {
             return;
         };
-        if settings.outline().points().len() < 3 {
-            return;
-        }
         let line = Line::new(self.here(), first);
         self.start_glide(Drive::Preview { line, leg: 0 }, now_us);
     }
 
-    /// Drops Random's current move so the next target comes from the new outline
-    pub fn outline_changed(&mut self, now_us: u64) {
-        if let Walk::Moving(_) = self.walk {
-            self.walk = Walk::Dwell { until_us: now_us };
-            self.walk_at_us = now_us;
+    /// Refreshes the idle state and drops Random's current move so the next target comes from the
+    /// new outline. A preview in progress ends in Random, as a finished trace does
+    pub fn outline_changed(&mut self, now_us: u64, settings: &Settings) {
+        if self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }) {
+            self.set_mode(Mode::Random, now_us, settings);
+            return;
         }
+        self.idle = settings.outline().points().len() < 3;
+        self.walk = Walk::Dwell { until_us: now_us };
+        self.walk_at_us = now_us;
     }
 
     /// Returns the current Random, goto, or preview destination
@@ -352,14 +356,7 @@ impl Controller {
             };
             self.enter_phase(next, self.phase_end_us, settings);
         }
-        let idle = settings.outline().points().len() < 3;
-        if idle != self.idle {
-            self.idle = idle;
-            // Restart the walk so recovery picks a target right away
-            self.walk = Walk::Dwell { until_us: now_us };
-            self.walk_at_us = now_us;
-        }
-        self.laser = self.phase == Phase::Active && !idle;
+        self.laser = self.phase == Phase::Active && !self.idle;
         if !self.laser {
             return (None, None, Some(self.phase_end_us));
         }
@@ -504,7 +501,7 @@ impl Controller {
         let points = settings.outline().points();
         let next = leg + 1;
         self.drive = match points.get(next % points.len().max(1)) {
-            Some(&to) if leg < points.len() && points.len() >= 3 => Drive::Preview {
+            Some(&to) if leg < points.len() => Drive::Preview {
                 line: Line::new(here, to),
                 leg: next,
             },
@@ -996,11 +993,13 @@ mod tests {
         }
         assert_eq!(c.status(now).idle, None);
         s.presets[0].outline = Outline::new(&tri[..2]).unwrap();
+        c.outline_changed(now, &s);
         let out = c.step(now, &s);
         assert!(!out.laser);
         assert_eq!((out.x, out.y), (None, None));
         assert_eq!(c.status(now).idle, Some(Idle::NoArea));
         s.presets[0].outline = Outline::new(&tri).unwrap();
+        c.outline_changed(now + S, &s);
         let out = c.step(now + S, &s);
         assert!(out.laser);
         assert_eq!(c.status(now + S).idle, None);
@@ -1008,6 +1007,62 @@ mod tests {
             .iter()
             .any(|(_, o)| o.x.is_some() || o.y.is_some());
         assert!(moved);
+    }
+
+    #[test]
+    fn manual_during_preview_holds_position() {
+        let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
+        let s = with_outline(&tri);
+        let mut c = boot(&s);
+        c.preview(0, &s);
+        let mut now = 0;
+        for _ in 0..20 {
+            now = c.step(now, &s).next_us.unwrap();
+        }
+        let here = (c.x, c.y);
+        c.set_mode(Mode::Manual, now, &s);
+        let st = c.status(now);
+        assert_eq!(st.mode, Mode::Manual);
+        assert!(!st.previewing);
+        assert_eq!(c.target(), None);
+        assert_eq!(c.step(now + S, &s).next_us, None);
+        assert_eq!((c.x, c.y), here);
+    }
+
+    #[test]
+    fn manual_during_goto_keeps_gliding() {
+        let s = settings();
+        let mut c = boot(&s);
+        c.goto(p(900, 1000), S);
+        c.set_mode(Mode::Manual, S, &s);
+        assert_eq!(c.target(), Some(p(900, 1000)));
+    }
+
+    #[test]
+    fn outline_changed_restarts_dwell() {
+        let mut s = settings();
+        s.dwell_min_ms = 60_000;
+        s.dwell_max_ms = 60_000;
+        let mut c = boot(&s);
+        let mut now = 0;
+        // Walk until the first long dwell starts
+        while !matches!(c.walk, Walk::Dwell { until_us } if until_us > now + 30 * S) {
+            now = c.step(now, &s).next_us.unwrap();
+        }
+        c.outline_changed(now, &s);
+        assert_eq!(c.walk, Walk::Dwell { until_us: now });
+        assert_eq!(c.walk_at_us, now);
+    }
+
+    #[test]
+    fn outline_changed_in_off_keeps_laser_off() {
+        let mut s = with_outline(&L[..2]);
+        let mut c = boot(&s);
+        c.set_mode(Mode::Off, S, &s);
+        s.presets[0].outline = square(859, 1598);
+        c.outline_changed(S, &s);
+        assert!(!c.step(S, &s).laser);
+        assert!(!c.status(S).laser);
     }
 
     #[test]
@@ -1109,6 +1164,25 @@ mod tests {
         assert_eq!(st.mode, Mode::Random);
         assert_eq!(st.phase, Some(Phase::Active));
         assert!(st.laser);
+    }
+
+    #[test]
+    fn outline_change_mid_preview_ends_in_random() {
+        let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
+        let mut s = with_outline(&tri);
+        let mut c = boot(&s);
+        c.preview(0, &s);
+        let mut now = 0;
+        for _ in 0..20 {
+            now = c.step(now, &s).next_us.unwrap();
+        }
+        assert!(c.status(now).previewing);
+        s.presets[0].outline = Outline::new(&[p(900, 900), p(1500, 900), p(1500, 1500)]).unwrap();
+        c.outline_changed(now, &s);
+        let st = c.status(now);
+        assert_eq!(st.mode, Mode::Random);
+        assert_eq!(st.phase, Some(Phase::Active));
+        assert!(!st.previewing);
     }
 
     #[test]
@@ -1248,7 +1322,7 @@ mod tests {
             }
         }
         s.preset = 1;
-        c.outline_changed(now);
+        c.outline_changed(now, &s);
         // One straight move into the new outline, then it never leaves
         let mut entered = false;
         for _ in 0..3000 {

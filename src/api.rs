@@ -201,7 +201,7 @@ pub fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
         Route::NotFound => done(Reply::NotFound),
     };
     if *settings.outline() != before {
-        c.outline_changed(now_us);
+        c.outline_changed(now_us, settings);
     }
     outcome
 }
