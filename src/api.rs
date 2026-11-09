@@ -316,7 +316,8 @@ pub fn write_status(
 ) -> core::fmt::Result {
     let (mode, phase, remaining_s) = match status.activity {
         Activity::Random { phase, remaining_s } => ("random", Some(phase), remaining_s),
-        Activity::Previewing | Activity::Manual => ("manual", None, 0),
+        Activity::Previewing => ("random", None, 0),
+        Activity::Manual => ("manual", None, 0),
         Activity::Off => ("off", None, 0),
     };
     let phase = match phase {
@@ -740,14 +741,16 @@ mod tests {
     }
 
     #[test]
-    fn status_previewing_true() {
+    fn status_preview_reports_random() {
         let mut st = state();
         st.settings.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         dispatch(Route::Preview, &mut st, 0);
         let json = status_string(&st.controller.status(0), &st.settings);
         assert!(
-            json.contains(r#""phase_remaining_s":0,"previewing":true,"#),
+            json.starts_with(
+                r#"{"mode":"random","phase":null,"phase_remaining_s":0,"previewing":true,"#
+            ),
             "{json}"
         );
     }

@@ -239,14 +239,13 @@ return r.json().then(s=>{fillNow(s);return true})}).catch(()=>{toast('No connect
 function set(q){return apply('/set?'+q,()=>'Setting refused')}
 
 // Home
-function shownMode(){return S.mode==='random'||(S.mode==='manual'&&S.previewing)?'random':S.mode}
 for(const b of $('modes').children)b.addEventListener('click',()=>{const m=b.dataset.m;pendingMode=m;renderModes();
 act('/mode?m='+m,'No connection, mode not changed')
 .finally(()=>{if(pendingMode===m)pendingMode=null;renderModes()})});
-function renderModes(){const m=S&&shownMode();for(const b of $('modes').children){
+function renderModes(){const m=S&&S.mode;for(const b of $('modes').children){
 b.setAttribute('aria-pressed',String(b.dataset.m===m));b.classList.toggle('pending',b.dataset.m===pendingMode)}}
 function renderHome(){renderModes();
-const m=S&&shownMode();
+const m=S&&S.mode;
 $('roomRow').classList.toggle('hidden',m!=='random');
 $('status').classList.toggle('hidden',m==='off');
 for(const [id,k] of [['bRandom','random'],['bManual','manual'],['bOff','off']])$(id).classList.toggle('hidden',m!==k);
@@ -415,7 +414,7 @@ $('name').addEventListener('blur',commitName);
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
 $('addPoint').addEventListener('click',()=>act('/mode?m=manual',undefined,()=>{edit={i:S.points.length-1,kind:'new',moved:false,room:S.preset};show('point')}));
 $('preview').addEventListener('click',togglePreview);
-$('outBack').addEventListener('click',()=>{show('home');if(S&&S.mode==='manual'&&!S.previewing)toRandom();else poll()});
+$('outBack').addEventListener('click',()=>{show('home');if(S&&S.mode==='manual')toRandom();else poll()});
 
 // Point editor. `edit.i` is the point, or the one a new point goes after
 const liveIndex=()=>edit.kind==='new'?edit.i+1:edit.i;
