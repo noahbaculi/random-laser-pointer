@@ -3,6 +3,8 @@
 #![deny(clippy::mem_forget)]
 #![deny(clippy::large_stack_frames)]
 
+extern crate alloc;
+
 mod control;
 mod http;
 mod net;

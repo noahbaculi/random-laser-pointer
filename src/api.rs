@@ -6,9 +6,6 @@ use crate::controller::{Controller, Dir, Mode, Phase, Status};
 use crate::geometry::{self_crossing, Point};
 use crate::settings::{Name, Outline, Settings, Travel, MAX_POINTS, NAME_MAX_LEN, PRESET_COUNT};
 
-// Fits four 16-char names with every field at its type max
-pub const STATUS_BUF_LEN: usize = 1024;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route<'a> {
     Page,
@@ -98,11 +95,19 @@ pub fn route(request: &str) -> Route<'_> {
     }
 }
 
+/// Splits `query` into `key=value` pairs, skipping empty ones. A pair without `=` is `None`
+fn pairs(query: &str) -> impl Iterator<Item = Option<(&str, &str)>> {
+    query
+        .split('&')
+        .filter(|p| !p.is_empty())
+        .map(|p| p.split_once('='))
+}
+
 /// Parses `dir=<name>` and an optional `fine=0|1` in either order
 fn parse_dpad(query: &str) -> Option<(Dir, bool)> {
     let (mut dir, mut fine) = (None, None);
-    for pair in query.split('&') {
-        let (key, value) = pair.split_once('=')?;
+    for pair in pairs(query) {
+        let (key, value) = pair?;
         match key {
             "dir" if dir.is_none() => {
                 dir = Some(match value {
@@ -134,8 +139,8 @@ fn parse_dpad(query: &str) -> Option<(Dir, bool)> {
 /// Parses `x=N&y=N` in either order
 fn parse_goto(query: &str) -> Option<Point> {
     let (mut x, mut y) = (None, None);
-    for pair in query.split('&') {
-        let (key, value) = pair.split_once('=')?;
+    for pair in pairs(query) {
+        let (key, value) = pair?;
         let v = value.parse().ok()?;
         match key {
             "x" => x = Some(v),
@@ -214,8 +219,8 @@ pub fn apply_points(
     travel: Travel,
 ) -> Result<(), PointsError> {
     let (mut room, mut list) = (None, None);
-    for pair in query.split('&') {
-        match pair.split_once('=') {
+    for pair in pairs(query) {
+        match pair {
             Some(("r", v)) => room = Some(v.parse::<u8>().map_err(|_| PointsError::BadValue)?),
             Some(("p", v)) => list = Some(v),
             _ => return Err(PointsError::BadValue),
@@ -253,8 +258,8 @@ pub fn apply_points(
 /// Applies `key=value` pairs in order, then clamps. Changes nothing on error
 pub fn apply_set(query: &str, settings: &mut Settings, travel: Travel) -> Result<(), SetError> {
     let mut s = *settings;
-    for pair in query.split('&').filter(|p| !p.is_empty()) {
-        let (key, value) = pair.split_once('=').ok_or(SetError::BadValue)?;
+    for pair in pairs(query) {
+        let (key, value) = pair.ok_or(SetError::BadValue)?;
         if key == "name" {
             let mut buf = [0u8; NAME_MAX_LEN];
             let name = decode(value, &mut buf).and_then(Name::new);
@@ -515,50 +520,6 @@ mod tests {
     }
 
     #[test]
-    fn status_fits_buffer() {
-        let mut s = Settings::defaults();
-        for p in &mut s.presets {
-            p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
-            p.outline = Outline::new(&[pt(u16::MAX, u16::MAX); MAX_POINTS]).unwrap();
-        }
-        s.glide_min_us = u32::MAX;
-        s.glide_max_us = u32::MAX;
-        s.dwell_min_ms = u32::MAX;
-        s.dwell_max_ms = u32::MAX;
-        s.manual_speed = u16::MAX;
-        s.active_min = u16::MAX;
-        s.rest_min = u16::MAX;
-        s.preset = 3;
-        let status = Status {
-            mode: Mode::Manual,
-            phase: Some(Phase::Active),
-            phase_remaining_s: u32::MAX,
-            previewing: true,
-            laser: false,
-            x: u16::MAX,
-            y: u16::MAX,
-        };
-        let travel = Travel {
-            min: u16::MAX,
-            max: u16::MAX,
-        };
-        let mut out = String::new();
-        write_status(&mut out, &status, &s, travel).unwrap();
-        assert!(out.len() <= STATUS_BUF_LEN, "{}", out.len());
-    }
-
-    #[test]
-    fn status_fits_buffer_at_travel_max() {
-        let mut s = Settings::defaults();
-        for p in &mut s.presets {
-            p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
-            p.outline = Outline::new(&[pt(1966, 1966); MAX_POINTS]).unwrap();
-        }
-        let status = Controller::new(0, T, &s, 1).status(0);
-        assert!(status_string(&status, &s).len() < STATUS_BUF_LEN);
-    }
-
-    #[test]
     fn routes_dpad_fine() {
         let dpad = |dir, fine| Route::Dpad { dir, fine };
         assert_eq!(route(&req("/d?dir=up&fine=1")), dpad(Dir::Up, true));
@@ -594,6 +555,21 @@ mod tests {
         for (q, want) in cases {
             assert_eq!(route(&req(q)), want, "{q}");
         }
+    }
+
+    #[test]
+    fn empty_query_pairs_are_skipped() {
+        assert_eq!(
+            route(&req("/goto?x=900&&y=1000")),
+            Route::Goto(pt(900, 1000))
+        );
+        assert_eq!(
+            route(&req("/d?dir=up&")),
+            Route::Dpad {
+                dir: Dir::Up,
+                fine: false
+            }
+        );
     }
 
     fn points(query: &str, preset: u8) -> (Result<(), PointsError>, Settings) {

@@ -22,7 +22,7 @@ mod host {
     use std::thread;
     use std::time::{Duration, Instant, SystemTime};
 
-    use random_laser_pointer::api::{self, Reply, State, STATUS_BUF_LEN};
+    use random_laser_pointer::api::{self, Reply, State};
     use random_laser_pointer::controller::Controller;
     use random_laser_pointer::record::{self, RECORD_LEN};
     use random_laser_pointer::settings::{Settings, Travel};
@@ -228,7 +228,7 @@ mod host {
             let s = &sim.state;
             (s.controller.status(shared.now_us()), s.settings, s.travel)
         };
-        let mut body = String::with_capacity(STATUS_BUF_LEN);
+        let mut body = String::new();
         // Writing to a String cannot fail
         let _ = api::write_status(&mut body, &status, &settings, travel);
         body

@@ -1,12 +1,13 @@
 //! Keep-alive HTTP server pool, API dispatch, and the control page.
 
+use alloc::string::String;
 use core::fmt::Write as _;
 
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{IpListenEndpoint, Stack};
 use embassy_time::Duration;
 use embedded_io_async::Write;
-use random_laser_pointer::api::{self, Reply, Route, STATUS_BUF_LEN};
+use random_laser_pointer::api::{self, Reply, Route};
 
 use crate::control::{now_us, with_state, SETTINGS_CHANGED, WAKE};
 
@@ -110,7 +111,7 @@ async fn send_status(socket: &mut TcpSocket<'_>) -> bool {
     else {
         return socket.write_all(BAD_REQUEST).await.is_ok();
     };
-    let mut body = Buf::<STATUS_BUF_LEN>::new();
+    let mut body = String::new();
     if api::write_status(&mut body, &status, &settings, travel).is_err() {
         return false;
     }
@@ -118,7 +119,7 @@ async fn send_status(socket: &mut TcpSocket<'_>) -> bool {
 }
 
 async fn send(socket: &mut TcpSocket<'_>, content_type: &str, body: &[u8], close: bool) -> bool {
-    let mut header = Buf::<160>::new();
+    let mut header = String::new();
     let connection = if close { "Connection: close\r\n" } else { "" };
     if write!(
         header,
@@ -130,38 +131,6 @@ async fn send(socket: &mut TcpSocket<'_>, content_type: &str, body: &[u8], close
         return false;
     }
     socket.write_all(header.as_bytes()).await.is_ok() && socket.write_all(body).await.is_ok()
-}
-
-/// Fixed-capacity `core::fmt::Write` sink
-struct Buf<const N: usize> {
-    buf: [u8; N],
-    pos: usize,
-}
-
-impl<const N: usize> Buf<N> {
-    fn new() -> Self {
-        Buf {
-            buf: [0; N],
-            pos: 0,
-        }
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.buf[..self.pos]
-    }
-}
-
-impl<const N: usize> core::fmt::Write for Buf<N> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let bytes = s.as_bytes();
-        let end = self.pos + bytes.len();
-        if end > N {
-            return Err(core::fmt::Error);
-        }
-        self.buf[self.pos..end].copy_from_slice(bytes);
-        self.pos = end;
-        Ok(())
-    }
 }
 
 const PAGE_BODY: &str = include_str!("page.html");
