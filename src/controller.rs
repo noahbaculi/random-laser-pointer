@@ -3,7 +3,7 @@
 use rand::rngs::SmallRng;
 use rand::{RngExt as _, SeedableRng};
 
-use crate::geometry::{bbox, contains, segment_inside, Point};
+use crate::geometry::{bbox, contains, inside_near, segment_inside, Point};
 use crate::settings::{Settings, Travel};
 
 pub const MANUAL_TICK_US: u64 = 20_000;
@@ -400,18 +400,18 @@ impl Controller {
     }
 
     /// Returns a random point inside the active outline, by rejection within its
-    /// bounding box. From inside, the straight path to it must stay inside too
+    /// bounding box. From inside, or within one count of it, the straight path to
+    /// it must stay inside too
     fn pick_target(&mut self, settings: &Settings) -> Option<Point> {
         let outline = settings.outline().points();
         let (lo, hi) = bbox(outline)?;
-        let here = self.here();
-        let inside = contains(outline, here);
+        let from = inside_near(outline, self.here());
         (0..TARGET_TRIES).find_map(|_| {
             let p = Point {
                 x: self.rng.random_range(lo.x..=hi.x),
                 y: self.rng.random_range(lo.y..=hi.y),
             };
-            let ok = contains(outline, p) && (!inside || segment_inside(outline, here, p));
+            let ok = contains(outline, p) && from.is_none_or(|a| segment_inside(outline, a, p));
             ok.then_some(p)
         })
     }
@@ -1428,5 +1428,30 @@ mod tests {
         let mut c = boot(&s);
         c.set_mode(Mode::Random, 100 * S, &s);
         assert_eq!(c.status(100 * S).phase_remaining_s, 500);
+    }
+
+    const V: [Point; 5] = [
+        Point { x: 600, y: 600 },
+        Point { x: 1800, y: 600 },
+        Point { x: 1800, y: 1800 },
+        Point { x: 1200, y: 1000 },
+        Point { x: 600, y: 1800 },
+    ];
+
+    #[test]
+    fn rounded_outside_never_cuts_the_notch() {
+        let s = with_outline(&V);
+        let here = p(1500, 1401);
+        assert!(!contains(&V, here));
+        for seed in 1..=20 {
+            let mut c = Controller::new(0, T, &s, seed);
+            (c.x, c.y) = (here.x, here.y);
+            let t = c.pick_target(&s).expect("right side has reachable targets");
+            // On the notch edge, one count from `here`
+            assert!(
+                segment_inside(&V, p(1500, 1400), t),
+                "seed {seed} cut the notch to {t:?}"
+            );
+        }
     }
 }

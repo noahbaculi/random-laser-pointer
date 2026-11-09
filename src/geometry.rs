@@ -85,6 +85,19 @@ pub fn contains(outline: &[Point], p: Point) -> bool {
     contains_scaled(outline, v(p), 1)
 }
 
+/// Returns `p` if inside `outline`, else its first inside neighbour within one count
+pub fn inside_near(outline: &[Point], p: Point) -> Option<Point> {
+    let near = |a: u16, d: i8| a.saturating_add_signed(d.into());
+    [0, -1, 1]
+        .into_iter()
+        .flat_map(|dx| [0, -1, 1].map(|dy| (dx, dy)))
+        .map(|(dx, dy)| Point {
+            x: near(p.x, dx),
+            y: near(p.y, dy),
+        })
+        .find(|&q| contains(outline, q))
+}
+
 /// Returns whether every point of segment `a`-`b` is inside or on `outline`
 pub fn segment_inside(outline: &[Point], a: Point, b: Point) -> bool {
     if !contains(outline, a) || !contains(outline, b) {
@@ -265,5 +278,15 @@ mod tests {
     fn bbox_of_l() {
         assert_eq!(bbox(&L), Some((p(0, 0), p(100, 100))));
         assert_eq!(bbox(&[]), None);
+    }
+
+    #[test]
+    fn inside_near_snaps_one_count() {
+        let tri = [p(0, 0), p(10, 0), p(10, 3)];
+        assert_eq!(inside_near(&tri, p(5, 1)), Some(p(5, 1)));
+        let snapped = inside_near(&tri, p(2, 1)).expect("a neighbour is inside");
+        assert!(contains(&tri, snapped));
+        assert!(snapped.x.abs_diff(2) <= 1 && snapped.y.abs_diff(1) <= 1);
+        assert_eq!(inside_near(&tri, p(0, 9)), None);
     }
 }
