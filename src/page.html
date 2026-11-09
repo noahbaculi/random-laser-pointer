@@ -108,7 +108,7 @@ input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radiu
 <div class="seg soft" id=modes><button data-m=random aria-pressed=false>Random</button><button data-m=manual aria-pressed=false>Manual</button><button data-m=off aria-pressed=false>Off</button></div>
 <button class="room live" id=roomRow><span><span id=roomName></span> &#9662;</span><span id=roomCount></span></button>
 </div>
-<div class="card status soft" id=status aria-live=polite><div class=line><span class=dot id=stDot></span><span id=stLine>Connecting</span></div><div class=sub id=stSub></div></div>
+<div class="card status soft" id=status aria-live=polite><div class=line><span class=dot id=stDot></span><span id=stLine>Connecting</span></div><div class=sub id=stSub><span id=stCd></span><span id=stText></span><button class=link id=stLink hidden></button></div></div>
 <div class="body hidden" id=bRandom>
 <div class=sk><svg id=homeSketch aria-label="Room outline"></svg></div>
 <div class="actions live"><button id=editOutline>Edit outline</button><button id=homePreview>Preview</button></div>
@@ -202,7 +202,7 @@ function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className
 // Offline the banner already says so
 function toast(t,bad){if(bad&&offline)return;const e=$('toast');e.textContent=t;e.className=bad?'bad':'';clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.className='hidden',2500)}
 function visible(id){return !$(id).classList.contains('hidden')}
-function show(id){for(const s of ['home','outline','point'])$(s).classList.toggle('hidden',s!==id);fineAim(false);if(id!=='point')edit=null;render()}
+function show(id){for(const s of ['home','outline','point'])$(s).classList.toggle('hidden',s!==id);fineAim(false);release();if(id!=='point')edit=null;render()}
 function rebuildIfChanged(e,key,build){if(e._key===key)return;e._key=key;build()}
 
 function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();renderQuality()}
@@ -233,7 +233,7 @@ if(!r.ok)throw r.status;return r.json().then(s=>{fillNow(s);return true})}).catc
 // Home
 function shownMode(){return S.mode==='random'||(S.mode==='manual'&&S.previewing)?'random':S.mode}
 for(const b of $('modes').children)b.addEventListener('click',()=>{const m=b.dataset.m;pendingMode=m;renderModes();
-get('/mode?m='+m).then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection, mode not changed',true))
+act('/mode?m='+m,'No connection, mode not changed')
 .finally(()=>{if(pendingMode===m)pendingMode=null;renderModes()})});
 function renderModes(){const m=S&&shownMode();for(const b of $('modes').children){
 b.setAttribute('aria-pressed',String(b.dataset.m===m));b.classList.toggle('pending',b.dataset.m===pendingMode)}}
@@ -247,25 +247,27 @@ if(!S)return;
 $('roomName').textContent=S.names[S.preset];$('roomCount').textContent=pts(S.counts[S.preset]);
 if(m==='random'){sketch($('homeSketch'),{would:S.points});$('homePreview').textContent=S.previewing?'Stop preview':'Preview';$('homePreview').disabled=!S.previewing&&S.points.length<3}
 renderPicker()}
-function link(text,go){const b=el('button','link',text);b.addEventListener('click',go);return b}
-const toRandom=()=>get('/mode?m=random').then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection',true));
+// Runs `path`, then `ok` and a poll, or toasts `msg`. Never rejects
+function act(path,msg='No connection',ok){return get(path).then(r=>{if(!r.ok)throw r.status;if(ok)ok();return poll()}).catch(()=>toast(msg,true))}
+const toRandom=()=>act('/mode?m=random');
+const togglePreview=()=>S.previewing?toRandom():act('/preview');
 // Seconds left in the phase, counted down locally between polls
 const remaining=()=>Math.max(0,S.phase_remaining_s-Math.floor((Date.now()-lastOkAt)/1000));
 function renderStatus(){
 if(!visible('home'))return;
-const sub=$('stSub'),dot=$('stDot');let line,kind='ok',parts=[];
+const dot=$('stDot');let line,kind='ok',sub=['','',null];
 if(!S){line='Connecting';kind=''}
-else if(S.previewing){line='Previewing outline';parts=[link('Stop',toRandom)]}
-else if(S.mode==='random'&&S.counts[S.preset]<3){line=S.names[S.preset]+' has no outline';kind='warn';parts=[link('Edit outline',openOutline),' · needs 3 points']}
-else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';parts=[cd('Back in '+mmss(remaining())),' · ',link('Start now',toRandom)]}
-else if(S.mode==='random'){line='Playing, laser on';parts=[S.rest_min?cd('Rests in '+mmss(remaining())):'No rest']}
-else{line='Manual, laser on';parts=['Steer with the arrows · Random room: '+S.names[S.preset]]}
-if(offline&&S){parts=[cd('last known, '+Math.round((Date.now()-lastOkAt)/1000)+' s ago')];kind=''}
-$('stLine').textContent=line;dot.className='dot '+kind;
-// Rebuild only when the shape changes and tick the countdown in place, so no link tap is swallowed
-rebuildIfChanged(sub,parts.map(p=>typeof p==='string'?p:p.className==='cd'?'{cd}':'['+p.textContent+']').join('|'),()=>sub.replaceChildren(...parts));
-const t=parts.find(p=>p.className==='cd'),c=sub.querySelector('.cd');if(t&&c)c.textContent=t.textContent}
-const cd=t=>el('span','cd',t);
+else if(S.previewing){line='Previewing outline';sub=['','',['Stop',toRandom]]}
+else if(S.mode==='random'&&S.counts[S.preset]<3){line=S.names[S.preset]+' has no outline';kind='warn';sub=['','Needs 3 points · ',['Edit outline',openOutline]]}
+else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';sub=['Back in '+mmss(remaining()),' · ',['Start now',toRandom]]}
+else if(S.mode==='random'){line='Playing, laser on';sub=S.rest_min?['Rests in '+mmss(remaining()),'',null]:['','No rest',null]}
+else{line='Manual, laser on';sub=['','Steer with the arrows · Random room: '+S.names[S.preset],null]}
+if(offline&&S){sub=['last known, '+Math.round((Date.now()-lastOkAt)/1000)+' s ago','',null];kind=''}
+$('stLine').textContent=line;dot.className='dot '+kind;setSub(...sub)}
+// Static parts, so a tap is never lost to a rebuild. `link` is `[label, handler]`
+function setSub(cd,text,link){const c=$('stCd'),t=$('stText'),l=$('stLink');
+c.textContent=cd;c.hidden=!cd;t.textContent=text;t.hidden=!text;
+l.textContent=link?link[0]:'';l.hidden=!link;l.onclick=link&&link[1]}
 setInterval(renderStatus,1000);
 
 // Room picker over a backdrop that eats the closing tap
@@ -278,21 +280,23 @@ function picker(open){$('picker').classList.toggle('hidden',!open);$('pickShade'
 $('roomRow').addEventListener('click',()=>{if(S){renderPicker();picker(true)}});
 $('pickShade').addEventListener('click',()=>picker(false));
 $('editOutline').addEventListener('click',()=>openOutline());
-$('homePreview').addEventListener('click',()=>S.previewing?toRandom():get('/preview').then(()=>poll()).catch(()=>toast('No connection',true)));
+$('homePreview').addEventListener('click',togglePreview);
 
 // D-pad: hold to glide, keepalive every 120 ms, slide to change direction
-let fineOn=false,held=null,heldPad=null,timer=null,busy=false,pend=null;
+// `stopped` resolves once the send queue drains after the last release
+let fineOn=false,held=null,heldPad=null,timer=null,busy=false,pend=null,stopped=Promise.resolve(),idle=null;
 const GLYPH={upleft:'◤',up:'▲',upright:'◥',left:'◀',right:'▶',downleft:'◣',down:'▼',downright:'◢'};
 const NAME={upleft:'Up left',up:'Up',upright:'Up right',left:'Left',right:'Right',downleft:'Down left',down:'Down',downright:'Down right'};
 // Fine aim only on the point editor's D-pad
 function dpadQuery(d){return '/d?dir='+d+(fineOn&&heldPad===$('pointPad')?'&fine=1':'')}
 function send(d){if(busy){pend=d;return}busy=true;const t=performance.now();
-get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{if(d==='stop'&&!held)setTimeout(()=>send('stop'),100)})
-.finally(()=>{busy=false;if(pend!==null){const p=pend;pend=null;send(p)}})}
+get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{})
+.finally(()=>{busy=false;if(pend!==null){const p=pend;pend=null;send(p)}else if(idle){const f=idle;idle=null;f()}})}
 function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held&&b.parentNode===heldPad)}
 function press(pad,d){held=d;heldPad=pad;mark();send(d);if(visible('point')&&edit)edit.moved=true;
 clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120)}
-function release(){if(!held)return;held=null;mark();clearInterval(timer);timer=null;pend=null;send('stop')}
+function release(){if(!held)return stopped;held=null;mark();clearInterval(timer);timer=null;pend=null;
+stopped=new Promise(res=>{const prev=idle;idle=()=>{if(prev)prev();res()}});send('stop');return stopped}
 function dirAt(e){const t=document.elementFromPoint(e.clientX,e.clientY);const b=t&&t.closest('[data-d]');return b?b.dataset.d:null}
 for(const pad of document.querySelectorAll('.pad')){
 for(const d of ['upleft','up','upright','left',null,'right','downleft','down','downright']){
@@ -343,10 +347,9 @@ function paint(e){const [a]=e.querySelectorAll('input'),f=v=>(v-a.min)/(a.max-a.
 e.style.setProperty('--lo',f(lo));e.style.setProperty('--hi',f(hi));
 // Stacked thumbs: put the one with room to move on top
 a.style.zIndex=f(lo)>0.5?2:''}
-for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input'),step=+a.step;
+for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input');
 for(const i of [a,b]){
-// Keep one step between the thumbs so stacked thumbs stay grabbable
-i.addEventListener('input',()=>{if(i===a)a.value=Math.min(+a.value,+b.value-step);else b.value=Math.max(+b.value,+a.value+step);
+i.addEventListener('input',()=>{if(i===a)a.value=Math.min(+a.value,+b.value);else b.value=Math.max(+b.value,+a.value);
 paint(e);$(id+'V').textContent=d.label(...thumbs(e))});
 i.addEventListener('change',()=>set(d.q(...thumbs(e))).then(ok=>{if(!ok){i.blur();fillSheet()}}))}}
 const crosses=v=>{const n=(S.travel[1]-S.travel[0])/v;return 'Crosses in '+(n<10?n.toFixed(1):Math.round(n))+' s'};
@@ -363,8 +366,7 @@ b.addEventListener('pointerdown',ev=>{ev.preventDefault();bump(d);stop();rep=set
 for(const t of ['pointerup','pointerleave','pointercancel'])b.addEventListener(t,stop);
 // Keyboard activation only, pointer taps already stepped
 b.addEventListener('click',ev=>{if(ev.detail===0)bump(d)})}}
-function renderConnRow(){const c=$('connV');if(!c)return;
-c.textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms · avg '+avgRtt().toFixed(0):'--'}
+function renderConnRow(){$('connV').textContent=offline?'Offline':rtts.length?rtts[rtts.length-1].toFixed(0)+' ms · avg '+avgRtt().toFixed(0):'--'}
 function fillSheet(){renderConnRow();if(!S)return;
 for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll('input');
 if(document.activeElement!==a&&document.activeElement!==b)[a.value,b.value]=d.get();
@@ -403,10 +405,9 @@ if(v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v)).then(ok=>{if(ok)t
 $('name').addEventListener('focus',()=>nameRoom=S&&S.preset);
 $('name').addEventListener('blur',commitName);
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
-$('addPoint').addEventListener('click',()=>get('/mode?m=manual').then(r=>{if(!r.ok)throw r.status;
-edit={i:S.points.length-1,kind:'new',moved:false,room:S.preset};show('point');return poll()}).catch(()=>toast('No connection',true)));
-$('preview').addEventListener('click',()=>S.previewing?toRandom():get('/preview').then(()=>poll()).catch(()=>toast('No connection',true)));
-$('outBack').addEventListener('click',()=>{release();show('home');if(S&&S.mode==='manual'&&!S.previewing)toRandom();else poll()});
+$('addPoint').addEventListener('click',()=>act('/mode?m=manual',undefined,()=>{edit={i:S.points.length-1,kind:'new',moved:false,room:S.preset};show('point')}));
+$('preview').addEventListener('click',togglePreview);
+$('outBack').addEventListener('click',()=>{show('home');if(S&&S.mode==='manual'&&!S.previewing)toRandom();else poll()});
 
 // Point editor. `edit.i` is the point, or the one a new point goes after
 const liveIndex=()=>edit.kind==='new'?edit.i+1:edit.i;
@@ -422,13 +423,13 @@ const c=[P.reduce((s,p)=>s+p[0],0)/n,P.reduce((s,p)=>s+p[1],0)/n];
 let nx=-d[1]/len,ny=d[0]/len;if(nx*(m[0]-c[0])+ny*(m[1]-c[1])<0){nx=-nx;ny=-ny}
 const [lo,hi]=S.travel,cl=v=>Math.min(hi,Math.max(lo,Math.round(v)));
 return [cl(m[0]+nx*0.08*len),cl(m[1]+ny*0.08*len)]}
-function goto([x,y]){return get('/goto?x='+x+'&y='+y).then(r=>{if(!r.ok)throw r.status;return poll()}).catch(()=>toast('No connection',true))}
+function goto([x,y]){return act('/goto?x='+x+'&y='+y)}
 function openPoint(i){edit={i,kind:'point',moved:false,room:S.preset};show('point');goto(S.points[i])}
 function fineAim(on){fineOn=on;$('fine').setAttribute('aria-pressed',String(on));$('fine').textContent=on?'Fine aim: on':'Fine aim'}
 $('fine').addEventListener('click',()=>fineAim(!fineOn));
 function fillPoint(){
 // Another client switched rooms, so this point no longer belongs to the active one
-if(edit.room!==S.preset){release();toast('Room changed',true);show('outline');return}
+if(edit.room!==S.preset){toast('Room changed',true);show('outline');return}
 const n=S.points.length;
 if(edit.kind==='point'&&edit.i>=n){if(!n){show('outline');return}edit.i=n-1}
 if(edit.kind==='new'&&edit.i>=n)edit.i=n-1;
@@ -442,31 +443,31 @@ else st.replaceChildren(edit.kind==='new'?'New':'Moved',el('span','tag','unsaved
 const b=$('save');b.disabled=!un||!!inv;b.textContent=!un?'Saved':inv||'Save point '+N+' here';
 $('prev').disabled=$('next').disabled=edit.kind==='point'?n<2:n<1;
 const ins=$('insert');ins.classList.toggle('hidden',edit.kind!=='point'||n<2||n>=16);ins.textContent='+ Insert after '+N}
-function savePoints(p){
+function savePoints(p,room){
 if(selfCrossing(p)){toast('That outline crosses itself',true);return Promise.resolve(false)}
-const q='r='+S.preset+'&p='+p.map(v=>v.join(',')).join(';');
+const q='r='+room+'&p='+p.map(v=>v.join(',')).join(';');
 return get('/points?'+q).then(r=>{
 if(r.ok)return r.json().then(s=>{fillNow(s);return true});
 toast(r.status===409?'Room changed elsewhere, reopen it':'Points refused',true);return false})
 .catch(()=>{toast('No connection',true);return false})}
-// Fresh position first, so a save right after a D-pad release saves where the laser stopped
-function savePoint(){release();return poll().then(()=>{if(!edit)return false;const inv=invalid();if(inv){toast(inv,true);return false}
-const li=liveIndex();return savePoints(wouldBe()).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false,room:edit.room};render()}return ok})})}
+// Wait for the D-pad stop and a fresh position, so the save lands where the laser stopped
+function savePoint(){return release().then(poll).then(()=>{if(!edit)return false;const inv=invalid();if(inv){toast(inv,true);return false}
+const li=liveIndex();return savePoints(wouldBe(),edit.room).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false,room:edit.room};render()}return ok})})}
 function leavePoint(go){if(!unsaved())return go();
 const inv=offline?null:invalid(),N=liveIndex()+1;
 dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:offline?'Not connected, so the new aim cannot be saved':'Save the new aim before leaving?',
 buttons:[{label:inv||'Save',kind:'primary',disabled:offline||!!inv},{label:'Discard'},{label:'Cancel'}]})
-.then(v=>{if(v==='Save')savePoint().then(ok=>{if(ok)go()});else if(v==='Discard')go()})}
+.then(v=>{if(!edit)return;if(v==='Save')savePoint().then(ok=>{if(ok)go()});else if(v==='Discard')go()})}
 $('save').addEventListener('click',()=>{if(unsaved()&&!invalid())savePoint()});
 const neighbour=d=>{const n=S.points.length;return ((edit.kind==='new'?(d<0?edit.i:edit.i+1):edit.i+d)%n+n)%n};
-$('prev').addEventListener('click',()=>{release();leavePoint(()=>openPoint(neighbour(-1)))});
-$('next').addEventListener('click',()=>{release();leavePoint(()=>openPoint(neighbour(1)))});
-$('pointBack').addEventListener('click',()=>{release();leavePoint(()=>show('outline'))});
-$('insert').addEventListener('click',()=>{release();leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false,room:edit.room};show('point');goto(insertSpot(i))})});
-$('del').addEventListener('click',()=>{const i=edit.i,k=S.points.length-1;
+$('prev').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(-1))));
+$('next').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(1))));
+$('pointBack').addEventListener('click',()=>leavePoint(()=>show('outline')));
+$('insert').addEventListener('click',()=>leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false,room:edit.room};show('point');goto(insertSpot(i))}));
+$('del').addEventListener('click',()=>{const {i,room}=edit,k=S.points.length-1;
 dialog({title:'Delete point '+(i+1)+'?',text:k<3?'Random pauses until it has 3 points':'The outline keeps '+k+' points',
 buttons:[{label:'Delete',kind:'danger'},{label:'Cancel'}]})
-.then(v=>{if(v==='Delete')savePoints(S.points.filter((_,j)=>j!==i)).then(ok=>{if(ok)show('outline')})})});
+.then(v=>{if(!edit||v!=='Delete')return;savePoints(S.points.filter((_,j)=>j!==i),room).then(ok=>{if(ok)show('outline')})})});
 
 show('home');poll();
 </script></body></html>
