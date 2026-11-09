@@ -54,13 +54,18 @@ pub struct Output {
     pub next_us: Option<u64>,
 }
 
+/// What the station is doing, which differs from `Mode` only during a preview
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Activity {
+    Random { phase: Phase, remaining_s: u32 },
+    Previewing,
+    Manual,
+    Off,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Status {
-    pub mode: Mode,
-    /// `None` outside Random
-    pub phase: Option<Phase>,
-    pub phase_remaining_s: u32,
-    pub previewing: bool,
+    pub activity: Activity,
     pub laser: bool,
     pub x: u16,
     pub y: u16,
@@ -120,39 +125,71 @@ enum Walk {
     Dwell { until_us: u64 },
 }
 
+/// Random's phase clock and walk
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Random {
+    phase: Phase,
+    phase_end_us: u64,
+    walk: Walk,
+    walk_at_us: u64,
+}
+
+impl Random {
+    /// Returns `phase` starting at `start_us`, picking a fresh target from the held position
+    fn enter(phase: Phase, start_us: u64, settings: &Settings) -> Random {
+        let minutes = match phase {
+            Phase::Active => settings.active_min,
+            Phase::Rest => settings.rest_min,
+        };
+        Random {
+            phase,
+            phase_end_us: start_us + minutes as u64 * US_PER_MIN,
+            walk: Walk::Dwell { until_us: start_us },
+            walk_at_us: start_us,
+        }
+    }
+}
+
 /// What Manual is doing
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Drive {
-    Dpad,
-    Goto(Line),
+    // Position in thousandths of a count
+    Dpad {
+        dir: Dir,
+        dir_at_us: u64,
+        // Quarter speed
+        fine: bool,
+        x_milli: u32,
+        y_milli: u32,
+    },
+    // Progress carry in thousandths of a count
+    Goto {
+        line: Line,
+        milli: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum State {
+    Random(Random),
     /// `leg` indexes the point being approached, with the point count meaning the first again
     Preview {
         line: Line,
         leg: usize,
+        milli: u32,
     },
+    Manual(Drive),
+    Off,
 }
 
 pub struct Controller {
     travel: Travel,
-    mode: Mode,
-    phase: Phase,
-    phase_end_us: u64,
+    state: State,
     laser: bool,
     x: u16,
     y: u16,
-    dir: Dir,
-    dir_at_us: u64,
-    // Quarter-speed D-pad
-    fine: bool,
+    // Shared by D-pad, goto, and preview
     next_tick_us: u64,
-    // Manual position in thousandths of a count
-    manual_x: u32,
-    manual_y: u32,
-    drive: Drive,
-    // Goto and preview progress in thousandths of a count
-    glide_milli: u32,
-    walk: Walk,
-    walk_at_us: u64,
     rng: SmallRng,
 }
 
@@ -161,63 +198,64 @@ impl Controller {
     pub fn new(now_us: u64, travel: Travel, settings: &Settings, seed: u64) -> Self {
         let mut c = Controller {
             travel,
-            mode: Mode::Off,
-            phase: Phase::Active,
-            phase_end_us: 0,
+            state: State::Off,
             laser: false,
             x: travel.center(),
             y: travel.center(),
-            dir: Dir::Stop,
-            dir_at_us: 0,
-            fine: false,
             next_tick_us: 0,
-            manual_x: 0,
-            manual_y: 0,
-            drive: Drive::Dpad,
-            glide_milli: 0,
-            walk: Walk::Dwell { until_us: 0 },
-            walk_at_us: 0,
             rng: SmallRng::seed_from_u64(seed),
         };
         c.set_mode(Mode::Random, now_us, settings);
         c
     }
 
-    /// Switches mode. Entering Random, or picking it during rest, restarts the active phase
+    /// Switches mode and ends any preview. Entering Random, or picking it during rest, restarts
+    /// the active phase
     pub fn set_mode(&mut self, mode: Mode, now_us: u64, settings: &Settings) {
-        let resting = self.mode == Mode::Random && self.phase == Phase::Rest;
-        let previewing = matches!(self.drive, Drive::Preview { .. });
-        if mode == self.mode
-            && !(mode == Mode::Random && resting || mode == Mode::Manual && previewing)
-        {
-            return;
-        }
-        self.mode = mode;
-        self.dir = Dir::Stop;
-        match mode {
-            Mode::Random => self.enter_phase(Phase::Active, now_us, settings),
-            Mode::Manual => self.enter_manual(),
-            Mode::Off => self.laser = false,
+        match (mode, self.state) {
+            (
+                Mode::Random,
+                State::Random(Random {
+                    phase: Phase::Active,
+                    ..
+                }),
+            )
+            | (Mode::Manual, State::Manual(_))
+            | (Mode::Off, State::Off) => {}
+            (Mode::Random, _) => {
+                self.state = State::Random(Random::enter(Phase::Active, now_us, settings));
+                self.laser = lit(Phase::Active, settings);
+            }
+            (Mode::Manual, _) => self.enter_manual(),
+            (Mode::Off, _) => {
+                self.state = State::Off;
+                self.laser = false;
+            }
         }
     }
 
     /// Applies a D-pad command. Any direction but `Stop` takes over into Manual and cancels a glide.
     /// `fine` quarters the D-pad speed from the next tick
     pub fn manual(&mut self, dir: Dir, fine: bool, now_us: u64) {
-        self.fine = fine;
-        if dir != Dir::Stop && (self.mode != Mode::Manual || self.drive != Drive::Dpad) {
-            self.mode = Mode::Manual;
+        if dir != Dir::Stop && !matches!(self.state, State::Manual(Drive::Dpad { .. })) {
             self.enter_manual();
         }
-        if self.mode != Mode::Manual {
+        let State::Manual(Drive::Dpad {
+            dir: held,
+            dir_at_us,
+            fine: quarter,
+            ..
+        }) = &mut self.state
+        else {
             return;
-        }
+        };
         // Keepalives must not reset the tick schedule
-        if dir != Dir::Stop && !self.gliding(now_us) {
+        if dir != Dir::Stop && !gliding(*held, *dir_at_us, now_us) {
             self.next_tick_us = now_us + MANUAL_TICK_US;
         }
-        self.dir = dir;
-        self.dir_at_us = now_us;
+        *held = dir;
+        *dir_at_us = now_us;
+        *quarter = fine;
     }
 
     /// Switches to Manual and glides straight to `to`, clamped to travel
@@ -226,45 +264,59 @@ impl Controller {
             x: to.x.clamp(self.travel.min, self.travel.max),
             y: to.y.clamp(self.travel.min, self.travel.max),
         };
-        self.start_glide(Drive::Goto(Line::new(self.here(), to)), now_us);
+        let line = Line::new(self.here(), to);
+        self.start_line(State::Manual(Drive::Goto { line, milli: 0 }), now_us);
     }
 
-    /// Switches to Manual and traces the active outline, then resumes Random from its first point.
-    /// Does nothing below 3 points
+    /// Traces the active outline, then resumes Random from its first point. Does nothing below
+    /// 3 points
     pub fn preview(&mut self, now_us: u64, settings: &Settings) {
         let &[first, _, _, ..] = settings.outline().points() else {
             return;
         };
         let line = Line::new(self.here(), first);
-        self.start_glide(Drive::Preview { line, leg: 0 }, now_us);
+        self.start_line(
+            State::Preview {
+                line,
+                leg: 0,
+                milli: 0,
+            },
+            now_us,
+        );
     }
 
     /// Drops Random's current move so the next target comes from the new outline. A preview in
     /// progress ends in Random, as a finished trace does
     pub fn outline_changed(&mut self, now_us: u64, settings: &Settings) {
-        if self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }) {
-            self.set_mode(Mode::Random, now_us, settings);
-            return;
+        match &mut self.state {
+            State::Preview { .. } => self.set_mode(Mode::Random, now_us, settings),
+            State::Random(r) => {
+                r.walk = Walk::Dwell { until_us: now_us };
+                r.walk_at_us = now_us;
+            }
+            State::Manual(_) | State::Off => {}
         }
-        self.walk = Walk::Dwell { until_us: now_us };
-        self.walk_at_us = now_us;
     }
 
     /// Returns the current Random, goto, or preview destination
     pub fn target(&self) -> Option<Point> {
-        match (self.mode, self.drive, self.walk) {
-            (Mode::Random, _, Walk::Moving(line)) => Some(line.to),
-            (Mode::Manual, Drive::Goto(line) | Drive::Preview { line, .. }, _) => Some(line.to),
+        match self.state {
+            State::Random(Random {
+                walk: Walk::Moving(line),
+                ..
+            })
+            | State::Preview { line, .. }
+            | State::Manual(Drive::Goto { line, .. }) => Some(line.to),
             _ => None,
         }
     }
 
     /// Advances to `now_us` and returns the pin writes and next deadline
     pub fn step(&mut self, now_us: u64, settings: &Settings) -> Output {
-        let (x, y, next_us) = match self.mode {
-            Mode::Off => (None, None, None),
-            Mode::Manual => self.step_manual(now_us, settings),
-            Mode::Random => self.step_random(now_us, settings),
+        let (x, y, next_us) = match self.state {
+            State::Off => (None, None, None),
+            State::Random(r) => self.step_random(r, now_us, settings),
+            State::Manual(_) | State::Preview { .. } => self.step_manual(now_us, settings),
         };
         Output {
             laser: self.laser,
@@ -275,13 +327,17 @@ impl Controller {
     }
 
     pub fn status(&self, now_us: u64) -> Status {
-        let random = self.mode == Mode::Random;
-        let remaining_s = self.phase_end_us.saturating_sub(now_us).div_ceil(1_000_000);
+        let activity = match self.state {
+            State::Random(r) => Activity::Random {
+                phase: r.phase,
+                remaining_s: r.phase_end_us.saturating_sub(now_us).div_ceil(1_000_000) as u32,
+            },
+            State::Preview { .. } => Activity::Previewing,
+            State::Manual(_) => Activity::Manual,
+            State::Off => Activity::Off,
+        };
         Status {
-            mode: self.mode,
-            phase: random.then_some(self.phase),
-            phase_remaining_s: if random { remaining_s as u32 } else { 0 },
-            previewing: self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }),
+            activity,
             laser: self.laser,
             x: self.x,
             y: self.y,
@@ -297,98 +353,87 @@ impl Controller {
 
     fn enter_manual(&mut self) {
         self.laser = true;
-        self.drive = Drive::Dpad;
-        self.manual_x = self.x as u32 * MILLI;
-        self.manual_y = self.y as u32 * MILLI;
+        self.state = State::Manual(dpad_at(self.here()));
     }
 
-    fn start_glide(&mut self, drive: Drive, now_us: u64) {
-        if self.mode != Mode::Manual {
-            self.mode = Mode::Manual;
-            self.enter_manual();
-        }
-        self.dir = Dir::Stop;
-        self.drive = drive;
-        self.glide_milli = 0;
+    fn start_line(&mut self, state: State, now_us: u64) {
+        self.laser = true;
+        self.state = state;
         self.next_tick_us = now_us;
-    }
-
-    fn enter_phase(&mut self, phase: Phase, start_us: u64, settings: &Settings) {
-        let minutes = match phase {
-            Phase::Active => settings.active_min,
-            Phase::Rest => settings.rest_min,
-        };
-        self.phase = phase;
-        self.phase_end_us = start_us + minutes as u64 * US_PER_MIN;
-        self.laser = phase == Phase::Active && settings.outline().points().len() >= 3;
-        // Pick a fresh target from the held position
-        self.walk = Walk::Dwell { until_us: start_us };
-        self.walk_at_us = start_us;
     }
 
     fn step_random(
         &mut self,
+        mut r: Random,
         now_us: u64,
         settings: &Settings,
     ) -> (Option<u16>, Option<u16>, Option<u64>) {
         // Boundaries chain from the stored end so phases never drift
-        while now_us >= self.phase_end_us {
-            let next = match self.phase {
+        while now_us >= r.phase_end_us {
+            let next = match r.phase {
                 Phase::Active if settings.rest_min > 0 => Phase::Rest,
                 _ => Phase::Active,
             };
-            self.enter_phase(next, self.phase_end_us, settings);
+            r = Random::enter(next, r.phase_end_us, settings);
         }
-        self.laser = self.phase == Phase::Active && settings.outline().points().len() >= 3;
-        if !self.laser {
-            return (None, None, Some(self.phase_end_us));
-        }
-        let (x, y) = if now_us >= self.walk_at_us {
-            self.walk(now_us, settings)
+        self.laser = lit(r.phase, settings);
+        let out = if !self.laser {
+            (None, None, Some(r.phase_end_us))
         } else {
-            (None, None)
+            let (x, y) = if now_us >= r.walk_at_us {
+                self.walk(&mut r, now_us, settings)
+            } else {
+                (None, None)
+            };
+            (x, y, Some(r.walk_at_us.min(r.phase_end_us)))
         };
-        (x, y, Some(self.walk_at_us.min(self.phase_end_us)))
+        self.state = State::Random(r);
+        out
     }
 
     /// Moves one count, or starts a dwell, and sets the next walk deadline
-    fn walk(&mut self, now_us: u64, settings: &Settings) -> (Option<u16>, Option<u16>) {
-        match self.walk {
+    fn walk(
+        &mut self,
+        r: &mut Random,
+        now_us: u64,
+        settings: &Settings,
+    ) -> (Option<u16>, Option<u16>) {
+        match r.walk {
             Walk::Dwell { until_us } if now_us < until_us => {
-                self.walk_at_us = until_us;
+                r.walk_at_us = until_us;
                 (None, None)
             }
             Walk::Dwell { .. } => match self.pick_target(settings) {
                 Some(to) if to != self.here() => {
-                    self.walk = Walk::Moving(Line::new(self.here(), to));
-                    self.walk(now_us, settings)
+                    r.walk = Walk::Moving(Line::new(self.here(), to));
+                    self.walk(r, now_us, settings)
                 }
                 _ => {
-                    self.dwell(now_us, settings);
+                    self.dwell(r, now_us, settings);
                     (None, None)
                 }
             },
             Walk::Moving(mut line) => {
                 let p = line.advance(1);
-                self.walk = Walk::Moving(line);
+                r.walk = Walk::Moving(line);
                 let moved = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
                 if line.done() {
-                    self.dwell(now_us, settings);
+                    self.dwell(r, now_us, settings);
                 } else {
-                    self.walk_at_us = now_us + self.glide_us(settings);
+                    r.walk_at_us = now_us + self.glide_us(settings);
                 }
                 moved
             }
         }
     }
 
-    fn dwell(&mut self, now_us: u64, settings: &Settings) {
+    fn dwell(&mut self, r: &mut Random, now_us: u64, settings: &Settings) {
         let dwell_ms = self
             .rng
             .random_range(settings.dwell_min_ms..=settings.dwell_max_ms);
         let until_us = now_us + (dwell_ms as u64 * 1000).max(MIN_DWELL_US);
-        self.walk = Walk::Dwell { until_us };
-        self.walk_at_us = until_us;
+        r.walk = Walk::Dwell { until_us };
+        r.walk_at_us = until_us;
     }
 
     /// Returns a random point inside the active outline, by rejection within its
@@ -413,8 +458,11 @@ impl Controller {
             .random_range(settings.glide_min_us..=settings.glide_max_us) as u64
     }
 
-    fn gliding(&self, now_us: u64) -> bool {
-        self.dir != Dir::Stop && now_us.saturating_sub(self.dir_at_us) <= DEADMAN_US
+    fn moving(&self, now_us: u64) -> bool {
+        match self.state {
+            State::Manual(Drive::Dpad { dir, dir_at_us, .. }) => gliding(dir, dir_at_us, now_us),
+            _ => true,
+        }
     }
 
     fn step_manual(
@@ -422,11 +470,7 @@ impl Controller {
         now_us: u64,
         settings: &Settings,
     ) -> (Option<u16>, Option<u16>, Option<u64>) {
-        let moving = match self.drive {
-            Drive::Dpad => self.gliding(now_us),
-            Drive::Goto(_) | Drive::Preview { .. } => true,
-        };
-        if !moving {
+        if !self.moving(now_us) {
             return (None, None, None);
         }
         if now_us < self.next_tick_us {
@@ -438,55 +482,52 @@ impl Controller {
         }
 
         let delta = settings.manual_speed as u32 * (MANUAL_TICK_US / 1000) as u32;
-        let p = match self.drive {
-            Drive::Dpad => self.nudge(if self.fine { delta / 4 } else { delta }),
-            Drive::Goto(mut line) => {
-                let p = line.advance(self.glide_counts(delta));
-                self.drive = if line.done() {
-                    self.manual_x = p.x as u32 * MILLI;
-                    self.manual_y = p.y as u32 * MILLI;
-                    Drive::Dpad
+        let p = match self.state {
+            State::Manual(Drive::Goto {
+                mut line,
+                mut milli,
+            }) => {
+                let p = line.advance(carry(&mut milli, delta));
+                let drive = if line.done() {
+                    dpad_at(p)
                 } else {
-                    Drive::Goto(line)
+                    Drive::Goto { line, milli }
                 };
+                self.state = State::Manual(drive);
                 p
             }
-            Drive::Preview { mut line, leg } => {
-                let p = line.advance(self.glide_counts(delta));
+            State::Preview {
+                mut line,
+                leg,
+                mut milli,
+            } => {
+                let p = line.advance(carry(&mut milli, delta));
                 if !line.done() {
-                    self.drive = Drive::Preview { line, leg };
-                } else if let Some(next) = self.next_leg(leg, p, settings) {
-                    self.drive = next;
+                    self.state = State::Preview { line, leg, milli };
+                } else if let Some(next) = self.next_leg(leg, p, milli, settings) {
+                    self.state = next;
                 } else {
-                    self.drive = Drive::Dpad;
                     let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
                     self.set_mode(Mode::Random, now_us, settings);
                     return (x, y, Some(now_us));
                 }
                 p
             }
+            _ => self.nudge(delta),
         };
         let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
-        let next = (self.drive != Drive::Dpad || self.gliding(now_us)).then_some(self.next_tick_us);
-        (x, y, next)
-    }
-
-    /// Returns whole counts to glide this tick from `delta` thousandths
-    fn glide_counts(&mut self, delta: u32) -> u32 {
-        self.glide_milli += delta;
-        let n = self.glide_milli / MILLI;
-        self.glide_milli %= MILLI;
-        n
+        (x, y, self.moving(now_us).then_some(self.next_tick_us))
     }
 
     /// Returns the leg to the point after `leg`, or `None` once the trace is back at the first
-    fn next_leg(&self, leg: usize, here: Point, settings: &Settings) -> Option<Drive> {
+    fn next_leg(&self, leg: usize, here: Point, milli: u32, settings: &Settings) -> Option<State> {
         let points = settings.outline().points();
         let next = leg + 1;
         match points.get(next % points.len().max(1)) {
-            Some(&to) if leg < points.len() => Some(Drive::Preview {
+            Some(&to) if leg < points.len() => Some(State::Preview {
                 line: Line::new(here, to),
                 leg: next,
+                milli,
             }),
             _ => None,
         }
@@ -498,6 +539,17 @@ impl Controller {
             self.travel.min as u32 * MILLI,
             self.travel.max as u32 * MILLI,
         );
+        let State::Manual(Drive::Dpad {
+            dir,
+            fine,
+            x_milli,
+            y_milli,
+            ..
+        }) = &mut self.state
+        else {
+            return self.here();
+        };
+        let delta = if *fine { delta / 4 } else { delta };
         let nudge = |v: u32, up: bool| {
             if up {
                 v + delta
@@ -507,7 +559,7 @@ impl Controller {
             .clamp(lo, hi)
         };
         // Inverted to match the servo mounting orientation
-        let (dx, dy) = match self.dir {
+        let (dx, dy) = match dir {
             Dir::Stop => (None, None),
             Dir::Up => (None, Some(false)),
             Dir::Down => (None, Some(true)),
@@ -519,16 +571,44 @@ impl Controller {
             Dir::DownRight => (Some(false), Some(true)),
         };
         if let Some(up) = dx {
-            self.manual_x = nudge(self.manual_x, up);
+            *x_milli = nudge(*x_milli, up);
         }
         if let Some(up) = dy {
-            self.manual_y = nudge(self.manual_y, up);
+            *y_milli = nudge(*y_milli, up);
         }
         Point {
-            x: (self.manual_x / MILLI) as u16,
-            y: (self.manual_y / MILLI) as u16,
+            x: (*x_milli / MILLI) as u16,
+            y: (*y_milli / MILLI) as u16,
         }
     }
+}
+
+/// Returns whether Random lights the laser: an active phase with an area
+fn lit(phase: Phase, settings: &Settings) -> bool {
+    phase == Phase::Active && settings.outline().points().len() >= 3
+}
+
+fn gliding(dir: Dir, dir_at_us: u64, now_us: u64) -> bool {
+    dir != Dir::Stop && now_us.saturating_sub(dir_at_us) <= DEADMAN_US
+}
+
+/// Returns a stopped D-pad drive at `p`
+fn dpad_at(p: Point) -> Drive {
+    Drive::Dpad {
+        dir: Dir::Stop,
+        dir_at_us: 0,
+        fine: false,
+        x_milli: p.x as u32 * MILLI,
+        y_milli: p.y as u32 * MILLI,
+    }
+}
+
+/// Returns whole counts to move this tick from `delta` thousandths, keeping the rest in `milli`
+fn carry(milli: &mut u32, delta: u32) -> u32 {
+    *milli += delta;
+    let n = *milli / MILLI;
+    *milli %= MILLI;
+    n
 }
 
 /// Sets `slot` to `v` and returns `Some(v)` only when it changed
@@ -570,14 +650,35 @@ mod tests {
         Controller::new(0, T, s, 1)
     }
 
+    fn phase(st: Status) -> Option<Phase> {
+        match st.activity {
+            Activity::Random { phase, .. } => Some(phase),
+            _ => None,
+        }
+    }
+
+    fn random(c: &Controller) -> Random {
+        match c.state {
+            State::Random(r) => r,
+            s => panic!("not in Random: {s:?}"),
+        }
+    }
+
+    fn remaining(st: Status) -> u32 {
+        match st.activity {
+            Activity::Random { remaining_s, .. } => remaining_s,
+            _ => 0,
+        }
+    }
+
     #[test]
     fn boots_random_active_laser_on() {
         let s = settings();
         let st = boot(&s).status(0);
-        assert_eq!(st.mode, Mode::Random);
-        assert_eq!(st.phase, Some(Phase::Active));
+        assert!(matches!(st.activity, Activity::Random { .. }));
+        assert_eq!(phase(st), Some(Phase::Active));
         assert!(st.laser);
-        assert_eq!(st.phase_remaining_s, 600);
+        assert_eq!(remaining(st), 600);
         assert_eq!((st.x, st.y), (T.center(), T.center()));
     }
 
@@ -587,10 +688,10 @@ mod tests {
         let mut c = boot(&s);
         let out = c.step(600 * S, &s);
         assert!(!out.laser);
-        assert_eq!(c.status(600 * S).phase, Some(Phase::Rest));
+        assert_eq!(phase(c.status(600 * S)), Some(Phase::Rest));
         let out = c.step(1800 * S, &s);
         assert!(out.laser);
-        assert_eq!(c.status(1800 * S).phase, Some(Phase::Active));
+        assert_eq!(phase(c.status(1800 * S)), Some(Phase::Active));
     }
 
     #[test]
@@ -600,7 +701,7 @@ mod tests {
         let mut c = boot(&s);
         for t in [600 * S, 1200 * S] {
             assert!(c.step(t, &s).laser);
-            assert_eq!(c.status(t).phase, Some(Phase::Active));
+            assert_eq!(phase(c.status(t)), Some(Phase::Active));
         }
     }
 
@@ -622,20 +723,20 @@ mod tests {
         c.step(300 * S, &s);
         s.active_min = 1;
         c.step(599 * S, &s);
-        assert_eq!(c.status(599 * S).phase, Some(Phase::Active));
+        assert_eq!(phase(c.status(599 * S)), Some(Phase::Active));
         c.step(600 * S, &s);
-        assert_eq!(c.status(600 * S).phase, Some(Phase::Rest));
+        assert_eq!(phase(c.status(600 * S)), Some(Phase::Rest));
         // Rest started with rest_min 20, so it keeps its 1800 s end
         s.rest_min = 1;
         c.step(700 * S, &s);
         c.step(1799 * S, &s);
-        assert_eq!(c.status(1799 * S).phase, Some(Phase::Rest));
+        assert_eq!(phase(c.status(1799 * S)), Some(Phase::Rest));
         c.step(1800 * S, &s);
-        assert_eq!(c.status(1800 * S).phase, Some(Phase::Active));
+        assert_eq!(phase(c.status(1800 * S)), Some(Phase::Active));
         c.step(1860 * S, &s);
-        assert_eq!(c.status(1860 * S).phase, Some(Phase::Rest));
+        assert_eq!(phase(c.status(1860 * S)), Some(Phase::Rest));
         c.step(1920 * S, &s);
-        assert_eq!(c.status(1920 * S).phase, Some(Phase::Active));
+        assert_eq!(phase(c.status(1920 * S)), Some(Phase::Active));
     }
 
     #[test]
@@ -645,8 +746,8 @@ mod tests {
         c.set_mode(Mode::Off, 100 * S, &s);
         c.set_mode(Mode::Random, 200 * S, &s);
         let st = c.status(200 * S);
-        assert_eq!(st.phase, Some(Phase::Active));
-        assert_eq!(st.phase_remaining_s, 600);
+        assert_eq!(phase(st), Some(Phase::Active));
+        assert_eq!(remaining(st), 600);
     }
 
     #[test]
@@ -664,7 +765,7 @@ mod tests {
                 next_us: None
             }
         );
-        assert_eq!(c.status(11 * S).phase, None);
+        assert_eq!(phase(c.status(11 * S)), None);
     }
 
     #[test]
@@ -682,7 +783,7 @@ mod tests {
         ] {
             c.manual(Dir::Up, false, t);
             let st = c.status(t);
-            assert_eq!(st.mode, Mode::Manual);
+            assert_eq!(st.activity, Activity::Manual);
             assert!(st.laser);
             assert!(c.step(t, &s).laser);
         }
@@ -693,7 +794,7 @@ mod tests {
         let s = settings();
         let mut c = boot(&s);
         c.manual(Dir::Stop, false, S);
-        assert_eq!(c.status(S).mode, Mode::Random);
+        assert!(matches!(c.status(S).activity, Activity::Random { .. }));
     }
 
     #[test]
@@ -797,7 +898,7 @@ mod tests {
         c.step(S + 20 * MS, &s);
         let later = S + 600 * S;
         c.step(later, &s);
-        assert_eq!(c.status(later).mode, Mode::Manual);
+        assert_eq!(c.status(later).activity, Activity::Manual);
         assert!(c.status(later).laser);
     }
 
@@ -898,7 +999,7 @@ mod tests {
     fn trace(c: &mut Controller, s: &Settings, start: u64) -> (u64, Vec<Point>) {
         let mut now = start;
         let mut seen = vec![p(c.x, c.y)];
-        while c.status(now).previewing {
+        while c.status(now).activity == Activity::Previewing {
             let next = c.step(now, s).next_us;
             seen.push(p(c.x, c.y));
             assert!(seen.len() < 10_000, "preview never ended");
@@ -922,7 +1023,7 @@ mod tests {
             let inside = contains(&L, p(c.x, c.y));
             if entered {
                 assert!(inside, "left at {:?}", (c.x, c.y));
-            } else if matches!(c.walk, Walk::Dwell { .. }) {
+            } else if matches!(random(&c).walk, Walk::Dwell { .. }) {
                 assert!(inside, "first move ended outside at {:?}", (c.x, c.y));
                 entered = true;
             }
@@ -983,8 +1084,8 @@ mod tests {
         let here = (c.x, c.y);
         c.set_mode(Mode::Manual, now, &s);
         let st = c.status(now);
-        assert_eq!(st.mode, Mode::Manual);
-        assert!(!st.previewing);
+        assert_eq!(st.activity, Activity::Manual);
+        assert_ne!(st.activity, Activity::Previewing);
         assert_eq!(c.target(), None);
         assert_eq!(c.step(now + S, &s).next_us, None);
         assert_eq!((c.x, c.y), here);
@@ -1007,12 +1108,12 @@ mod tests {
         let mut c = boot(&s);
         let mut now = 0;
         // Walk until the first long dwell starts
-        while !matches!(c.walk, Walk::Dwell { until_us } if until_us > now + 30 * S) {
+        while !matches!(random(&c).walk, Walk::Dwell { until_us } if until_us > now + 30 * S) {
             now = c.step(now, &s).next_us.unwrap();
         }
         c.outline_changed(now, &s);
-        assert_eq!(c.walk, Walk::Dwell { until_us: now });
-        assert_eq!(c.walk_at_us, now);
+        assert_eq!(random(&c).walk, Walk::Dwell { until_us: now });
+        assert_eq!(random(&c).walk_at_us, now);
     }
 
     #[test]
@@ -1065,7 +1166,7 @@ mod tests {
         let mut c = boot(&s);
         let (a, b) = (p(T.center(), T.center()), p(1500, 1000));
         c.goto(b, S);
-        assert_eq!(c.status(S).mode, Mode::Manual);
+        assert_eq!(c.status(S).activity, Activity::Manual);
         assert_eq!(c.target(), Some(b));
         let (_, seen) = glide(&mut c, &s, S);
         let (dx, dy) = (b.x as f64 - a.x as f64, b.y as f64 - a.y as f64);
@@ -1077,7 +1178,7 @@ mod tests {
         // Start, 272 counts at 9 per tick
         assert_eq!(seen.len(), 1 + 272usize.div_ceil(9));
         assert_eq!(*seen.last().unwrap(), b);
-        assert_eq!(c.status(S).mode, Mode::Manual);
+        assert_eq!(c.status(S).activity, Activity::Manual);
         assert!(c.status(S).laser);
         assert_eq!(c.target(), None);
     }
@@ -1121,13 +1222,13 @@ mod tests {
         let s = with_outline(&tri);
         let mut c = boot(&s);
         c.preview(S, &s);
-        assert_eq!(c.status(S).mode, Mode::Manual);
+        assert_eq!(c.status(S).activity, Activity::Previewing);
         let (now, seen) = trace(&mut c, &s, S);
         assert_visits_in_order(&seen, tri);
         assert_eq!(p(c.x, c.y), tri[0]);
         let st = c.status(now);
-        assert_eq!(st.mode, Mode::Random);
-        assert_eq!(st.phase, Some(Phase::Active));
+        assert!(matches!(st.activity, Activity::Random { .. }));
+        assert_eq!(phase(st), Some(Phase::Active));
         assert!(st.laser);
     }
 
@@ -1141,13 +1242,13 @@ mod tests {
         for _ in 0..20 {
             now = c.step(now, &s).next_us.unwrap();
         }
-        assert!(c.status(now).previewing);
+        assert_eq!(c.status(now).activity, Activity::Previewing);
         s.presets[0].outline = Outline::new(&[p(900, 900), p(1500, 900), p(1500, 1500)]).unwrap();
         c.outline_changed(now, &s);
         let st = c.status(now);
-        assert_eq!(st.mode, Mode::Random);
-        assert_eq!(st.phase, Some(Phase::Active));
-        assert!(!st.previewing);
+        assert!(matches!(st.activity, Activity::Random { .. }));
+        assert_eq!(phase(st), Some(Phase::Active));
+        assert_ne!(st.activity, Activity::Previewing);
     }
 
     #[test]
@@ -1156,16 +1257,16 @@ mod tests {
         let s = with_outline(&tri);
         let mut c = boot(&s);
         c.step(600 * S, &s);
-        assert_eq!(c.status(600 * S).phase, Some(Phase::Rest));
+        assert_eq!(phase(c.status(600 * S)), Some(Phase::Rest));
         c.preview(600 * S, &s);
         let (now, seen) = trace(&mut c, &s, 600 * S);
         assert_visits_in_order(&seen, tri);
         let st = c.status(now);
-        assert_eq!(st.mode, Mode::Random);
-        assert_eq!(st.phase, Some(Phase::Active));
-        assert_eq!(st.phase_remaining_s, s.active_min as u32 * 60);
+        assert!(matches!(st.activity, Activity::Random { .. }));
+        assert_eq!(phase(st), Some(Phase::Active));
+        assert_eq!(remaining(st), s.active_min as u32 * 60);
         assert!(st.laser);
-        assert!(!st.previewing);
+        assert_ne!(st.activity, Activity::Previewing);
         assert_eq!(p(st.x, st.y), tri[0]);
     }
 
@@ -1173,15 +1274,15 @@ mod tests {
     fn previewing_flag() {
         let s = with_outline(&[p(800, 800), p(1600, 800), p(1200, 1600)]);
         let mut c = boot(&s);
-        assert!(!c.status(0).previewing);
+        assert_ne!(c.status(0).activity, Activity::Previewing);
         c.preview(S, &s);
-        assert!(c.status(S).previewing);
+        assert_eq!(c.status(S).activity, Activity::Previewing);
         c.manual(Dir::Up, false, S);
-        assert!(!c.status(S).previewing);
+        assert_ne!(c.status(S).activity, Activity::Previewing);
         c.preview(2 * S, &s);
-        assert!(c.status(2 * S).previewing);
+        assert_eq!(c.status(2 * S).activity, Activity::Previewing);
         c.set_mode(Mode::Random, 2 * S, &s);
-        assert!(!c.status(2 * S).previewing);
+        assert_ne!(c.status(2 * S).activity, Activity::Previewing);
     }
 
     #[test]
@@ -1195,9 +1296,9 @@ mod tests {
         }
         c.set_mode(Mode::Random, now, &s);
         let st = c.status(now);
-        assert_eq!(st.mode, Mode::Random);
-        assert!(!st.previewing);
-        assert_eq!(st.phase, Some(Phase::Active));
+        assert!(matches!(st.activity, Activity::Random { .. }));
+        assert_ne!(st.activity, Activity::Previewing);
+        assert_eq!(phase(st), Some(Phase::Active));
     }
 
     #[test]
@@ -1236,7 +1337,7 @@ mod tests {
         for _ in 0..2000 {
             let next = c.step(now, &s).next_us.unwrap();
             // Arrival steps start a dwell instead
-            if matches!(c.walk, Walk::Moving(_)) {
+            if matches!(random(&c).walk, Walk::Moving(_)) {
                 let d = next - now;
                 assert!((1000..=15000).contains(&d), "glide {d}");
                 moves += 1;
@@ -1255,7 +1356,7 @@ mod tests {
         for _ in 0..5000 {
             let out = c.step(now, &s);
             let next = out.next_us.unwrap();
-            if matches!(c.walk, Walk::Dwell { .. }) {
+            if matches!(random(&c).walk, Walk::Dwell { .. }) {
                 let d = next - now;
                 assert!((900_000..=2_000_000).contains(&d), "dwell {d}");
                 dwells += 1;
@@ -1296,7 +1397,7 @@ mod tests {
             if entered {
                 assert!(inside, "left at {:?}", (c.x, c.y));
             }
-            entered |= inside && matches!(c.walk, Walk::Dwell { .. });
+            entered |= inside && matches!(random(&c).walk, Walk::Dwell { .. });
         }
         assert!(entered);
     }
@@ -1379,9 +1480,9 @@ mod tests {
         c.step(600 * S, &s);
         c.set_mode(Mode::Random, 700 * S, &s);
         let st = c.status(700 * S);
-        assert_eq!(st.phase, Some(Phase::Active));
+        assert_eq!(phase(st), Some(Phase::Active));
         assert!(st.laser);
-        assert_eq!(st.phase_remaining_s, 600);
+        assert_eq!(remaining(st), 600);
     }
 
     #[test]
@@ -1389,7 +1490,7 @@ mod tests {
         let s = settings();
         let mut c = boot(&s);
         c.set_mode(Mode::Random, 100 * S, &s);
-        assert_eq!(c.status(100 * S).phase_remaining_s, 500);
+        assert_eq!(remaining(c.status(100 * S)), 500);
     }
 
     const V: [Point; 5] = [

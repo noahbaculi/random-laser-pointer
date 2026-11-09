@@ -2,7 +2,7 @@
 
 use core::fmt::Write;
 
-use crate::controller::{Controller, Dir, Mode, Phase, Status};
+use crate::controller::{Activity, Controller, Dir, Mode, Phase, Status};
 use crate::geometry::{self_crossing, Point};
 use crate::settings::{Name, Outline, Settings, Travel, MAX_POINTS, NAME_MAX_LEN, PRESET_COUNT};
 
@@ -314,21 +314,20 @@ pub fn write_status(
     settings: &Settings,
     travel: Travel,
 ) -> core::fmt::Result {
-    let mode = match status.mode {
-        Mode::Random => "random",
-        Mode::Manual => "manual",
-        Mode::Off => "off",
+    let (mode, phase, remaining_s) = match status.activity {
+        Activity::Random { phase, remaining_s } => ("random", Some(phase), remaining_s),
+        Activity::Previewing | Activity::Manual => ("manual", None, 0),
+        Activity::Off => ("off", None, 0),
     };
-    let phase = match status.phase {
+    let phase = match phase {
         Some(Phase::Active) => "\"active\"",
         Some(Phase::Rest) => "\"rest\"",
         None => "null",
     };
     write!(
         w,
-        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{},"previewing":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
-        status.phase_remaining_s,
-        status.previewing,
+        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{remaining_s},"previewing":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
+        status.activity == Activity::Previewing,
         status.laser,
         status.x,
         status.y,
