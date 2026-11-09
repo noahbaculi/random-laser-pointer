@@ -135,9 +135,9 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
   - [ ] Fine aim places a point precisely on the wall
   - [ ] Offline banner shows when the phone leaves laser-dpad and clears on rejoin
   - [ ] In-page dialogs work in the iOS captive sign-in sheet
-- [ ] Release a held D-pad when ‹, › or Insert opens another point, so a second finger can't keep the hold running
+- [x] Release a held D-pad when ‹, › or Insert opens another point, so a second finger can't keep the hold running
 - [x] Stop or restart a preview when the room changes mid-trace, instead of tracing the new room from the old leg
-- [ ] Poll once before Save in the point editor, so a save right after releasing the D-pad uses the final position
+- [x] Poll once before Save in the point editor, so a save right after releasing the D-pad uses the final position
 - [ ] Upgrade to bigger, more robust, servos
 - [x] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image

@@ -427,7 +427,9 @@ return get('/points?'+q).then(r=>{
 if(r.ok)return r.json().then(s=>{fillNow(s);return true});
 toast(r.status===409?'Room changed elsewhere, reopen it':'Points refused',true);return false})
 .catch(()=>{toast('No connection',true);return false})}
-function savePoint(){const li=liveIndex();return savePoints(wouldBe()).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false};render()}return ok})}
+// Fresh position first, so a save right after a D-pad release saves where the laser stopped
+function savePoint(){release();return poll().then(()=>{if(!edit)return false;const inv=invalid();if(inv){toast(inv,true);return false}
+const li=liveIndex();return savePoints(wouldBe()).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false};render()}return ok})})}
 function leavePoint(go){if(!unsaved())return go();
 const inv=invalid(),N=liveIndex()+1;
 dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:'Save the new aim before leaving?',
@@ -435,10 +437,10 @@ buttons:[{label:inv||'Save',kind:'primary',disabled:!!inv},{label:'Discard'},{la
 .then(v=>{if(v==='Save')savePoint().then(ok=>{if(ok)go()});else if(v==='Discard')go()})}
 $('save').addEventListener('click',()=>{if(unsaved()&&!invalid())savePoint()});
 const neighbour=d=>{const n=S.points.length;return ((edit.kind==='new'?(d<0?edit.i:edit.i+1):edit.i+d)%n+n)%n};
-$('prev').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(-1))));
-$('next').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(1))));
+$('prev').addEventListener('click',()=>{release();leavePoint(()=>openPoint(neighbour(-1)))});
+$('next').addEventListener('click',()=>{release();leavePoint(()=>openPoint(neighbour(1)))});
 $('pointBack').addEventListener('click',()=>{release();leavePoint(()=>show('outline'))});
-$('insert').addEventListener('click',()=>leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false};show('point');goto(insertSpot(i))}));
+$('insert').addEventListener('click',()=>{release();leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false};show('point');goto(insertSpot(i))})});
 $('del').addEventListener('click',()=>{const i=edit.i,k=S.points.length-1;
 dialog({title:'Delete point '+(i+1)+'?',text:k<3?'Random pauses until it has 3 points':'The outline keeps '+k+' points',
 buttons:[{label:'Delete',kind:'danger'},{label:'Cancel'}]})
