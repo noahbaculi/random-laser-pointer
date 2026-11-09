@@ -60,7 +60,7 @@ pub enum Reply {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Outcome {
+struct Outcome {
     pub reply: Reply,
     /// Step the controller now
     pub wake: bool,
@@ -68,8 +68,111 @@ pub struct Outcome {
     pub settings_changed: bool,
 }
 
+/// Control page, served at `/` and to captive probes
+pub const PAGE: &str = include_str!("page.html");
+
+/// Status copied under the lock so formatting runs outside it
+#[derive(Clone, Copy)]
+struct Snapshot {
+    status: Status,
+    settings: Settings,
+    travel: Travel,
+}
+
+#[derive(Clone, Copy)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the snapshot is the copy taken under the lock, and the lib has no heap"
+)]
+enum Body {
+    Empty,
+    Page,
+    Status(Snapshot),
+}
+
+/// Reply to one request, built under the state lock and rendered after it
+pub struct Response<'a> {
+    /// Step the controller now
+    pub wake: bool,
+    /// Schedule a settings save
+    pub save: bool,
+    /// Close the connection after writing
+    pub close: bool,
+    /// `None` for polls, the page, and D-pad commands
+    pub log: Option<(Route<'a>, Reply)>,
+    code: &'static str,
+    body: Body,
+}
+
+/// Routes and applies one raw request head. Call under the state lock, then `render` after it
+pub fn handle<'a>(request: &'a [u8], state: &mut State, now_us: u64) -> Response<'a> {
+    let route = core::str::from_utf8(request).map_or(Route::BadRequest, route);
+    let out = dispatch(route, state, now_us);
+    let quiet = matches!(route, Route::Status | Route::Page | Route::Dpad { .. });
+    let (code, body) = match out.reply {
+        Reply::Page | Reply::NotFound => ("200 OK", Body::Page),
+        Reply::Status => (
+            "200 OK",
+            Body::Status(Snapshot {
+                status: state.controller.status(now_us),
+                settings: state.settings,
+                travel: state.travel,
+            }),
+        ),
+        Reply::NoContent => ("204 No Content", Body::Empty),
+        Reply::BadRequest => ("400 Bad Request", Body::Empty),
+        Reply::Conflict => ("409 Conflict", Body::Empty),
+    };
+    Response {
+        wake: out.wake,
+        save: out.settings_changed,
+        // Captive probes get the page, then a close so they don't hold a keep-alive slot
+        close: out.reply == Reply::NotFound,
+        log: (!quiet).then_some((route, out.reply)),
+        code,
+        body,
+    }
+}
+
+impl Response<'_> {
+    /// Writes the status line and headers to `head` and returns the body, formatting status
+    /// JSON into `buf`
+    pub fn render<'b, B: Write + AsRef<str>>(
+        &self,
+        head: &mut impl Write,
+        buf: &'b mut B,
+    ) -> Result<&'b str, core::fmt::Error> {
+        let (body, content_type) = match &self.body {
+            Body::Empty => ("", None),
+            Body::Page => (PAGE, Some("text/html")),
+            Body::Status(s) => {
+                write_status(buf, &s.status, &s.settings, s.travel)?;
+                let buf: &'b B = buf;
+                (buf.as_ref(), Some("application/json"))
+            }
+        };
+        write!(
+            head,
+            "HTTP/1.1 {}\r\nContent-Length: {}\r\n",
+            self.code,
+            body.len()
+        )?;
+        if let Some(content_type) = content_type {
+            write!(
+                head,
+                "Content-Type: {content_type}\r\nCache-Control: no-store\r\n"
+            )?;
+        }
+        if self.close {
+            head.write_str("Connection: close\r\n")?;
+        }
+        head.write_str("\r\n")?;
+        Ok(body)
+    }
+}
+
 /// Maps a raw request head to a route. Anything but `GET` is `NotFound`
-pub fn route(request: &str) -> Route<'_> {
+fn route(request: &str) -> Route<'_> {
     let mut parts = request.lines().next().unwrap_or("").split(' ');
     let (Some("GET"), Some(target)) = (parts.next(), parts.next()) else {
         return Route::NotFound;
@@ -151,8 +254,8 @@ fn parse_goto(query: &str) -> Option<Point> {
     Some(Point { x: x?, y: y? })
 }
 
-/// Applies the route to `state` and returns the reply and side effects for the shell
-pub fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
+/// Applies the route to `state` and returns the reply and side effects
+fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
     let done = |reply| Outcome {
         reply,
         wake: false,
@@ -308,7 +411,7 @@ pub fn decode<'b>(src: &str, buf: &'b mut [u8]) -> Option<&'b str> {
 }
 
 /// Writes the status JSON. Names need no escaping since `Name` excludes `"` and `\`
-pub fn write_status(
+fn write_status(
     w: &mut impl Write,
     status: &Status,
     settings: &Settings,
@@ -674,6 +777,94 @@ mod tests {
             settings,
             travel: T,
         }
+    }
+
+    fn render(response: &Response<'_>) -> (String, String) {
+        let (mut head, mut buf) = (String::new(), String::new());
+        let body = response.render(&mut head, &mut buf).unwrap().to_owned();
+        (head, body)
+    }
+
+    #[test]
+    fn handle_page_keeps_alive() {
+        let mut st = state();
+        let request = req("/");
+        let response = handle(request.as_bytes(), &mut st, 0);
+        let (head, body) = render(&response);
+        let expected = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n\r\n",
+            PAGE.len()
+        );
+        assert_eq!(head, expected);
+        assert_eq!(body, PAGE);
+        assert!(!response.close && !response.wake && !response.save);
+        assert_eq!(response.log, None);
+    }
+
+    #[test]
+    fn handle_captive_probe_gets_page_then_close() {
+        let mut st = state();
+        let request = req("/generate_204");
+        let response = handle(request.as_bytes(), &mut st, 0);
+        let (head, body) = render(&response);
+        assert!(head.ends_with("Connection: close\r\n\r\n"), "{head}");
+        assert_eq!(body, PAGE);
+        assert!(response.close);
+        assert_eq!(response.log, Some((Route::NotFound, Reply::NotFound)));
+    }
+
+    #[test]
+    fn handle_command_replies_no_content_and_wakes() {
+        let mut st = state();
+        let request = req("/mode?m=off");
+        let response = handle(request.as_bytes(), &mut st, 0);
+        let (head, body) = render(&response);
+        assert_eq!(head, "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
+        assert_eq!(body, "");
+        assert!(response.wake && !response.save && !response.close);
+        assert_eq!(
+            response.log,
+            Some((Route::Mode(Mode::Off), Reply::NoContent))
+        );
+    }
+
+    #[test]
+    fn handle_bad_utf8_is_bad_request() {
+        let mut st = state();
+        let response = handle(b"GET /\xff HTTP/1.1\r\n\r\n", &mut st, 0);
+        let (head, _) = render(&response);
+        assert_eq!(
+            head,
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"
+        );
+        assert!(!response.close);
+    }
+
+    #[test]
+    fn handle_wrong_room_is_conflict() {
+        let mut st = state();
+        let request = req("/points?r=1&p=");
+        let response = handle(request.as_bytes(), &mut st, 0);
+        let (head, _) = render(&response);
+        assert_eq!(head, "HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\n\r\n");
+    }
+
+    #[test]
+    fn handle_set_saves_and_replies_status() {
+        let mut st = state();
+        let request = req("/set?rest_min=5");
+        let response = handle(request.as_bytes(), &mut st, 0);
+        let (head, body) = render(&response);
+        assert!(response.save && response.wake);
+        assert_eq!(
+            head,
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n\r\n",
+                body.len()
+            )
+        );
+        assert_eq!(body, status_string(&st.controller.status(0), &st.settings));
+        assert!(body.ends_with(r#""rest_min":5}"#), "{body}");
     }
 
     #[test]

@@ -22,7 +22,7 @@ mod host {
     use std::thread;
     use std::time::{Duration, Instant, SystemTime};
 
-    use random_laser_pointer::api::{self, Reply, State};
+    use random_laser_pointer::api::{self, State};
     use random_laser_pointer::controller::Controller;
     use random_laser_pointer::record::{self, RECORD_LEN};
     use random_laser_pointer::settings::{Settings, Travel};
@@ -33,7 +33,6 @@ mod host {
     };
     const PORT: u16 = 8080;
     const SETTINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/sim-settings.bin");
-    const PAGE: &str = include_str!("../page.html");
     const SIM_PAGE: &str = include_str!("../sim.html");
 
     /// Shared state plus the controller wake flag, mirroring the firmware's `STATE` and `WAKE`
@@ -167,79 +166,73 @@ mod host {
                     }
                 }
             }
-            let ok = match std::str::from_utf8(&buffer[..pos]) {
-                Ok(request) => respond(&mut stream, request, shared),
-                Err(_) => send(&mut stream, "400 Bad Request", "text/plain", ""),
-            };
+            let ok = respond(&mut stream, &buffer[..pos], shared);
             if !ok {
                 return;
             }
         }
     }
 
-    fn respond(stream: &mut TcpStream, request: &str, shared: &Shared) -> bool {
-        let target = request.lines().next().unwrap_or("").split(' ').nth(1);
-        match target {
-            Some("/sim") => return send(stream, "200 OK", "text/html", SIM_PAGE),
-            Some("/sim/status") => {
-                let mut body = status(shared);
-                let sim = shared.lock();
-                let target = match sim.state.controller.target() {
-                    Some(p) => format!("[{},{}]", p.x, p.y),
-                    None => "null".into(),
-                };
-                drop(sim);
-                body.pop();
-                body.push_str(&format!(r#","target":{target}}}"#));
-                return send(stream, "200 OK", "application/json", &body);
-            }
-            _ => {}
+    /// Writes the reply and returns whether to keep the connection open
+    fn respond(stream: &mut TcpStream, request: &[u8], shared: &Shared) -> bool {
+        if request.starts_with(b"GET /sim ") {
+            return send(stream, "200 OK", "text/html", SIM_PAGE);
         }
-
-        let route = api::route(request);
-        let (out, saved) = {
+        if request.starts_with(b"GET /sim/status ") {
+            return sim_status(stream, shared);
+        }
+        let (response, saved) = {
             let mut sim = shared.lock();
-            let out = api::dispatch(route, &mut sim.state, shared.now_us());
-            if out.wake {
+            let response = api::handle(request, &mut sim.state, shared.now_us());
+            if response.wake {
                 sim.woken = true;
                 shared.wake.notify_one();
             }
-            (out, out.settings_changed.then_some(sim.state.settings))
+            let saved = response.save.then_some(sim.state.settings);
+            (response, saved)
         };
         if let Some(settings) = saved {
             save(&settings);
         }
-        if !matches!(
-            route,
-            api::Route::Status | api::Route::Page | api::Route::Dpad { .. }
-        ) {
-            println!("{route:?} -> {:?}", out.reply);
+        if let Some((route, reply)) = response.log {
+            println!("{route:?} -> {reply:?}");
         }
-        match out.reply {
-            Reply::Page => send(stream, "200 OK", "text/html", PAGE),
-            Reply::Status => send(stream, "200 OK", "application/json", &status(shared)),
-            Reply::NoContent => send(stream, "204 No Content", "text/plain", ""),
-            Reply::BadRequest => send(stream, "400 Bad Request", "text/plain", ""),
-            Reply::Conflict => send(stream, "409 Conflict", "text/plain", ""),
-            Reply::NotFound => send(stream, "404 Not Found", "text/plain", ""),
-        }
+        let (mut head, mut buf) = (String::new(), String::new());
+        let Ok(body) = response.render(&mut head, &mut buf) else {
+            return false;
+        };
+        stream.write_all(head.as_bytes()).is_ok()
+            && stream.write_all(body.as_bytes()).is_ok()
+            && !response.close
     }
 
-    fn status(shared: &Shared) -> String {
-        let (status, settings, travel) = {
-            let sim = shared.lock();
-            let s = &sim.state;
-            (s.controller.status(shared.now_us()), s.settings, s.travel)
+    /// Writes the status JSON with the current target appended
+    fn sim_status(stream: &mut TcpStream, shared: &Shared) -> bool {
+        let (response, target) = {
+            let mut sim = shared.lock();
+            let response = api::handle(
+                b"GET /status HTTP/1.1\r\n\r\n",
+                &mut sim.state,
+                shared.now_us(),
+            );
+            (response, sim.state.controller.target())
         };
-        let mut body = String::new();
-        // Writing to a String cannot fail
-        let _ = api::write_status(&mut body, &status, &settings, travel);
-        body
+        let (mut head, mut body) = (String::new(), String::new());
+        if response.render(&mut head, &mut body).is_err() {
+            return false;
+        }
+        let target = match target {
+            Some(p) => format!("[{},{}]", p.x, p.y),
+            None => "null".into(),
+        };
+        body.pop();
+        body.push_str(&format!(r#","target":{target}}}"#));
+        send(stream, "200 OK", "application/json", &body)
     }
 
     fn send(stream: &mut TcpStream, code: &str, content_type: &str, body: &str) -> bool {
         let head = format!(
-            "HTTP/1.1 {code}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\r\n",
+            "HTTP/1.1 {code}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\nCache-Control: no-store\r\n\r\n",
             body.len()
         );
         stream.write_all(head.as_bytes()).is_ok() && stream.write_all(body.as_bytes()).is_ok()
