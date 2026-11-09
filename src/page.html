@@ -112,10 +112,10 @@ input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radiu
 <header><span class=title>Laser</span><span class=dot id=conn role=img aria-label=Connecting></span><button class=icon id=gear aria-label=Settings>&#9881;&#xFE0E;</button></header>
 <div class=banner role=alert>Not connected to laser-dpad</div>
 <div class=ctl>
-<div class="seg soft" id=modes><button data-m=random aria-pressed=false>Random</button><button data-m=manual aria-pressed=false>Manual</button><button data-m=off aria-pressed=false>Off</button></div>
+<div class="seg soft live" id=modes><button data-m=random aria-pressed=false>Random</button><button data-m=manual aria-pressed=false>Manual</button><button data-m=off aria-pressed=false>Off</button></div>
 <button class="room live" id=roomRow><span><span id=roomName></span> &#9662;</span><span id=roomCount></span></button>
 </div>
-<div class="card status soft" id=status aria-live=polite><div class=line><span class=dot id=stDot></span><span id=stLine>Connecting</span></div><div class=sub id=stSub><span id=stCd></span><span id=stText></span><button class=link id=stLink hidden></button></div></div>
+<div class="card status soft" id=status><div class=line><span class=dot id=stDot></span><span id=stLine aria-live=polite>Connecting</span></div><div class=sub id=stSub><span id=stCd></span><span id=stText></span><button class=link id=stLink hidden></button></div></div>
 <div class="body hidden" id=bRandom>
 <div class=sk><svg id=homeSketch aria-label="Room outline"></svg></div>
 <div class="actions live"><button id=editOutline>Edit outline</button><button id=homePreview>Preview</button></div>
@@ -125,7 +125,7 @@ input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radiu
 </div>
 
 <div id=pickShade class="shade hidden"></div>
-<div id=picker class=hidden role=listbox aria-label=Rooms></div>
+<div id=picker class=hidden aria-label=Rooms></div>
 
 <div id=shade class="shade hidden"></div>
 <div id=sheet role=dialog aria-modal=true aria-labelledby=sheetTitle>
@@ -219,12 +219,12 @@ function quality(){return offline?'Offline':!rtts.length?'--':avgRtt()<200?'OK':
 let pollTimer=null,seq=0,applied=0;
 function pollDelay(){return visible('point')?150:S&&S.previewing?500:2000}
 function poll(){clearTimeout(pollTimer);const my=++seq,t=performance.now();
-return get('/status').then(json).then(s=>{rtt(performance.now()-t);fails=0;lastOkAt=Date.now();setOffline(false);if(my>=applied){applied=my;fill(s)}})
+return get('/status').then(json).then(s=>{rtt(performance.now()-t);fails=0;setOffline(false);if(my>=applied){applied=my;fill(s)}})
 .catch(()=>{if(++fails>=2)setOffline(true);render()})
 .finally(()=>{clearTimeout(pollTimer);pollTimer=setTimeout(poll,pollDelay())})}
 function setOffline(v){if(v===offline)return;offline=v;document.body.classList.toggle('offline',v);
 for(const e of document.querySelectorAll('.live'))e.inert=v;if(v){release();$('toast').className='hidden'}renderConn()}
-function fill(s){S=s;render()}
+function fill(s){S=s;lastOkAt=Date.now();render()}
 // Mutation replies are newer than any poll still in flight
 function fillNow(s){applied=++seq;fill(s)}
 function render(){if(visible('home'))renderHome();if(visible('outline'))fillOutline();if(visible('point')&&edit&&S)fillPoint();renderConn();fillSheet()}
@@ -271,7 +271,8 @@ else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';s
 else if(S.mode==='random'){line='Playing, laser on';sub=S.rest_min?['Rests in '+mmss(remaining()),'',null]:['','No rest',null]}
 else{line='Manual, laser on';sub=['','Steer with the arrows · Random room: '+S.names[S.preset],null]}
 if(offline&&S){sub=['last known, '+Math.round((Date.now()-lastOkAt)/1000)+' s ago','',null];kind=''}
-$('stLine').textContent=line;dot.className='dot '+kind;setSub(...sub)}
+// Rewriting unchanged text makes some screen readers announce it again
+if($('stLine').textContent!==line)$('stLine').textContent=line;dot.className='dot '+kind;setSub(...sub)}
 // Static parts, so a tap is never lost to a rebuild. `link` is `[label, handler]`
 function setSub(cd,text,link){const c=$('stCd'),t=$('stText'),l=$('stLink');
 c.textContent=cd;c.hidden=!cd;t.textContent=text;t.hidden=!text;
@@ -281,7 +282,7 @@ setInterval(renderStatus,1000);
 // Room picker over a backdrop that eats the closing tap
 function renderPicker(){const p=$('picker');
 rebuildIfChanged(p,JSON.stringify([S.names,S.counts,S.preset]),()=>p.replaceChildren(...S.names.map((n,i)=>{
-const b=el('button');b.setAttribute('role','option');b.setAttribute('aria-current',String(i===S.preset));
+const b=el('button');b.setAttribute('aria-current',String(i===S.preset));
 b.append(el('span',null,(i===S.preset?'✓ ':'')+n),el('span','dim',pts(S.counts[i])));
 b.addEventListener('click',()=>{picker(false);set('preset='+i)});return b})))}
 function picker(open){$('picker').classList.toggle('hidden',!open);$('pickShade').classList.toggle('hidden',!open)}
@@ -337,7 +338,7 @@ if(numbered){let dx=X(x)-cx,dy=y-cy,l=Math.hypot(dx,dy);if(l<1){dx=0;dy=-1;l=1}
 const t=node('text',{x:X(x)+dx/l*u*10,y:y+dy/l*u*10+u*3,'font-size':u*9,'text-anchor':'middle'});t.textContent=i+1;svg.append(t)}})}
 
 // Settings sheet
-function sheet(open){$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open);if(open)$('done').focus();else if($('sheet').contains(document.activeElement))document.activeElement.blur()}
+function sheet(open){$('sheet').inert=!open;$('sheet').classList.toggle('open',open);$('shade').classList.toggle('hidden',!open);if(open)$('done').focus();else if($('sheet').contains(document.activeElement))document.activeElement.blur()}
 $('gear').addEventListener('click',()=>sheet(true));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){sheet(false);picker(false)}});$('shade').addEventListener('click',()=>sheet(false));$('done').addEventListener('click',()=>sheet(false));
 const secs=ms=>ms%1000?(ms/1000).toFixed(1):String(ms/1000);
@@ -472,5 +473,5 @@ dialog({title:'Delete point '+(i+1)+'?',text:k<3?'Random pauses until it has 3 p
 buttons:[{label:'Delete',kind:'danger'},{label:'Cancel'}]})
 .then(v=>{if(!edit||v!=='Delete')return;savePoints(S.points.filter((_,j)=>j!==i),room).then(ok=>{if(ok)show('outline')})})});
 
-show('home');poll();
+sheet(false);show('home');poll();
 </script></body></html>
