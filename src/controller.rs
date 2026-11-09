@@ -44,13 +44,6 @@ pub enum Phase {
     Rest,
 }
 
-/// Reason Random holds with the laser off
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Idle {
-    /// Active room has fewer than 3 points
-    NoArea,
-}
-
 /// Pin writes for one step. `x` and `y` are `Some` only when the duty changed
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Output {
@@ -67,7 +60,6 @@ pub struct Status {
     /// `None` outside Random
     pub phase: Option<Phase>,
     pub phase_remaining_s: u32,
-    pub idle: Option<Idle>,
     pub previewing: bool,
     pub laser: bool,
     pub x: u16,
@@ -296,7 +288,6 @@ impl Controller {
             mode: self.mode,
             phase: random.then_some(self.phase),
             phase_remaining_s: if random { remaining_s as u32 } else { 0 },
-            idle: (random && self.idle).then_some(Idle::NoArea),
             previewing: self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }),
             laser: self.laser,
             x: self.x,
@@ -976,7 +967,6 @@ mod tests {
             assert_eq!((out.x, out.y), (None, None));
             let st = c.status(0);
             assert!(!st.laser);
-            assert_eq!(st.idle, Some(Idle::NoArea));
             let out = c.step(10 * S, &s);
             assert_eq!((out.x, out.y), (None, None));
         }
@@ -991,18 +981,15 @@ mod tests {
         for _ in 0..200 {
             now = c.step(now, &s).next_us.unwrap();
         }
-        assert_eq!(c.status(now).idle, None);
         s.presets[0].outline = Outline::new(&tri[..2]).unwrap();
         c.outline_changed(now, &s);
         let out = c.step(now, &s);
         assert!(!out.laser);
         assert_eq!((out.x, out.y), (None, None));
-        assert_eq!(c.status(now).idle, Some(Idle::NoArea));
         s.presets[0].outline = Outline::new(&tri).unwrap();
         c.outline_changed(now + S, &s);
         let out = c.step(now + S, &s);
         assert!(out.laser);
-        assert_eq!(c.status(now + S).idle, None);
         let moved = drive(&mut c, &s, out.next_us.unwrap(), 500)
             .iter()
             .any(|(_, o)| o.x.is_some() || o.y.is_some());

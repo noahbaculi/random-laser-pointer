@@ -256,7 +256,7 @@ if(!visible('home'))return;
 const sub=$('stSub'),dot=$('stDot');let line,kind='ok',parts=[];
 if(!S){line='Connecting';kind=''}
 else if(S.previewing){line='Previewing outline';parts=[link('Stop',toRandom)]}
-else if(S.mode==='random'&&S.idle==='no_area'){line=S.names[S.preset]+' has no outline';kind='warn';parts=[link('Edit outline',openOutline),' · needs 3 points']}
+else if(S.mode==='random'&&S.counts[S.preset]<3){line=S.names[S.preset]+' has no outline';kind='warn';parts=[link('Edit outline',openOutline),' · needs 3 points']}
 else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';parts=[cd('Back in '+mmss(remaining())),' · ',link('Start now',toRandom)]}
 else if(S.mode==='random'){line='Playing, laser on';parts=[S.rest_min?cd('Rests in '+mmss(remaining())):'No rest']}
 else{line='Manual, laser on';parts=['Steer with the arrows · Random room: '+S.names[S.preset]]}
