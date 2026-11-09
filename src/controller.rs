@@ -69,6 +69,7 @@ pub struct Status {
     pub laser: bool,
     pub x: u16,
     pub y: u16,
+    pub target: Option<Point>,
 }
 
 /// Straight move from `from` to `to`, one count per step on the longer axis
@@ -341,6 +342,7 @@ impl Controller {
             laser: self.laser,
             x: self.x,
             y: self.y,
+            target: self.target(),
         }
     }
 

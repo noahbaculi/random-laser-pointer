@@ -178,9 +178,6 @@ mod host {
         if request.starts_with(b"GET /sim ") {
             return send(stream, "200 OK", "text/html", SIM_PAGE);
         }
-        if request.starts_with(b"GET /sim/status ") {
-            return sim_status(stream, shared);
-        }
         let (response, saved) = {
             let mut sim = shared.lock();
             let response = api::handle(request, &mut sim.state, shared.now_us());
@@ -204,30 +201,6 @@ mod host {
         stream.write_all(head.as_bytes()).is_ok()
             && stream.write_all(body.as_bytes()).is_ok()
             && !response.close
-    }
-
-    /// Writes the status JSON with the current target appended
-    fn sim_status(stream: &mut TcpStream, shared: &Shared) -> bool {
-        let (response, target) = {
-            let mut sim = shared.lock();
-            let response = api::handle(
-                b"GET /status HTTP/1.1\r\n\r\n",
-                &mut sim.state,
-                shared.now_us(),
-            );
-            (response, sim.state.controller.target())
-        };
-        let (mut head, mut body) = (String::new(), String::new());
-        if response.render(&mut head, &mut body).is_err() {
-            return false;
-        }
-        let target = match target {
-            Some(p) => format!("[{},{}]", p.x, p.y),
-            None => "null".into(),
-        };
-        body.pop();
-        body.push_str(&format!(r#","target":{target}}}"#));
-        send(stream, "200 OK", "application/json", &body)
     }
 
     fn send(stream: &mut TcpStream, code: &str, content_type: &str, body: &str) -> bool {

@@ -430,14 +430,20 @@ fn write_status(
     };
     write!(
         w,
-        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{remaining_s},"previewing":{},"laser":{},"x":{},"y":{},"travel":[{},{}],"preset":{},"names":["#,
+        r#"{{"mode":"{mode}","phase":{phase},"phase_remaining_s":{remaining_s},"previewing":{},"laser":{},"x":{},"y":{},"target":"#,
         status.activity == Activity::Previewing,
         status.laser,
         status.x,
         status.y,
-        travel.min,
-        travel.max,
-        settings.preset,
+    )?;
+    match status.target {
+        Some(p) => write!(w, "[{},{}]", p.x, p.y)?,
+        None => w.write_str("null")?,
+    }
+    write!(
+        w,
+        r#","travel":[{},{}],"preset":{},"names":["#,
+        travel.min, travel.max, settings.preset,
     )?;
     for (i, p) in settings.presets.iter().enumerate() {
         let sep = if i == 0 { "" } else { "," };
@@ -609,7 +615,7 @@ mod tests {
         s.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         let status = Controller::new(0, T, &s, 1).status(0);
-        let expected = r#"{"mode":"random","phase":"active","phase_remaining_s":600,"previewing":false,"laser":true,"x":1228,"y":1228,"travel":[491,1966],"preset":0,"names":["Room 1","Room 2","Room 3","Room 4"],"counts":[3,0,0,0],"points":[[900,900],[1500,900],[1500,1500]],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}"#;
+        let expected = r#"{"mode":"random","phase":"active","phase_remaining_s":600,"previewing":false,"laser":true,"x":1228,"y":1228,"target":null,"travel":[491,1966],"preset":0,"names":["Room 1","Room 2","Room 3","Room 4"],"counts":[3,0,0,0],"points":[[900,900],[1500,900],[1500,1500]],"glide_min_us":1000,"glide_max_us":15000,"dwell_min_ms":900,"dwell_max_ms":2000,"manual_speed":450,"active_min":10,"rest_min":20}"#;
         assert_eq!(status_string(&status, &s), expected);
     }
 
@@ -944,6 +950,7 @@ mod tests {
             ),
             "{json}"
         );
+        assert!(json.contains(r#""target":[900,900],"#), "{json}");
     }
 
     #[test]

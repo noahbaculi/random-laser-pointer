@@ -27,6 +27,6 @@ if(s.target)t.setAttribute('transform',`translate(${sx(s.target[0])},${sy(s.targ
 const phase=s.phase?` · ${s.phase} ${Math.floor(s.phase_remaining_s/60)}:${String(s.phase_remaining_s%60).padStart(2,'0')}`:'';
 $('info').textContent=`${s.names[s.preset]} · ${s.mode}${phase} · (${s.x}, ${s.y})`;
 }
-function poll(){fetch('/sim/status').then(r=>r.json()).then(draw).catch(()=>{}).finally(()=>setTimeout(poll,100))}
+function poll(){fetch('/status').then(r=>r.json()).then(draw).catch(()=>{}).finally(()=>setTimeout(poll,100))}
 poll();
 </script></body></html>

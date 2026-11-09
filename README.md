@@ -71,7 +71,7 @@ Each of the four rooms is a name and an outline of up to 16 points, aimed with t
 The page polls `GET /status`. The same API takes every tuning value and room outline:
 
 ```shell
-curl 'http://laser.pointer/status'                                  # mode, phase, previewing, position, points per room (counts), active room's points, all settings as JSON
+curl 'http://laser.pointer/status'                                  # mode, phase, previewing, position, target, points per room (counts), active room's points, all settings as JSON
 curl 'http://laser.pointer/mode?m=off'                              # random, manual, or off
 curl 'http://laser.pointer/d?dir=upleft'                            # up, down, left, right, the 4 diagonals, or stop
 curl 'http://laser.pointer/d?dir=up&fine=1'                         # quarter speed, for aiming points
