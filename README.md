@@ -141,6 +141,9 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 - [ ] Hint how to add point 2 after saving the first one, since ‹ and › do nothing with one point
 - [x] Shade the range between dual slider thumbs, keep the thumbs from crossing, and label Random speed as a range ("Medium to Fast")
 - [ ] Draw the live laser dot on the outline sketch during a preview
+- [ ] Draw a dashed travel frame on sketches with under 3 points, so an empty room isn't a blank box
+- [ ] Move toasts to the bottom of the screen, so "Room changed" doesn't cover the room name
+- [ ] Bigger arrow-key steps on the dual sliders (one step is 0.5% of the range)
 - [ ] Upgrade to bigger, more robust, servos
 - [x] Redesign main enclosure with wall mounting keyholes
 - [ ] Take final product image
