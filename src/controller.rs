@@ -575,7 +575,7 @@ mod tests {
 
     // Defaults with room 0 set to the middle half of travel
     fn settings() -> Settings {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].outline = square(859, 1598);
         s
     }

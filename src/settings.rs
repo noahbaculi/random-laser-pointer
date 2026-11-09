@@ -102,7 +102,7 @@ pub struct Settings {
 
 impl Settings {
     /// Returns defaults with every room's outline empty
-    pub fn defaults(_travel: Travel) -> Self {
+    pub fn defaults() -> Self {
         Settings {
             presets: DEFAULT_NAMES.map(|n| Preset {
                 name: Name::new(n).unwrap(),
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn defaults_match_spec() {
-        let s = Settings::defaults(T);
+        let s = Settings::defaults();
         assert_eq!(s.preset, 0);
         for (i, p) in s.presets.iter().enumerate() {
             assert_eq!(p.name.as_str(), format!("Room {}", i + 1));
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn clamp_limits_ranges() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.glide_min_us = 10;
         s.glide_max_us = 99_999;
         s.manual_speed = 0;
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn defaults_have_empty_outlines() {
-        let s = Settings::defaults(T);
+        let s = Settings::defaults();
         assert!(s.presets.iter().all(|p| p.outline.points().is_empty()));
     }
 
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn clamp_moves_points_into_travel() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].outline = Outline::new(&[p(0, 4000), p(1000, 1000)]).unwrap();
         s.clamp(T);
         assert_eq!(
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn clamp_swaps_reversed_ranges() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.glide_min_us = 9000;
         s.glide_max_us = 2000;
         s.dwell_min_ms = 9000;
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn rest_zero_is_kept() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.rest_min = 0;
         s.clamp(T);
         assert_eq!(s.rest_min, 0);
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn outline_follows_active_preset() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         let o = Outline::new(&[p(600, 800), p(700, 800), p(700, 900)]).unwrap();
         s.presets[2].outline = o;
         s.preset = 2;

@@ -403,7 +403,7 @@ mod tests {
     }
 
     fn apply(query: &str) -> (Result<(), SetError>, Settings) {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         let r = apply_set(query, &mut s, T);
         (r, s)
     }
@@ -421,7 +421,7 @@ mod tests {
         assert_eq!(r, Ok(()));
         assert_eq!(s.preset, 2);
         assert_eq!(s.presets[2].name.as_str(), "Bed room");
-        assert_eq!(s.presets[0], Settings::defaults(T).presets[0]);
+        assert_eq!(s.presets[0], Settings::defaults().presets[0]);
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
         for q in ["x_min=900", "x_max=900", "y_min=900", "y_max=900"] {
             let (r, s) = apply(q);
             assert_eq!(r, Err(SetError::UnknownKey), "{q}");
-            assert_eq!(s, Settings::defaults(T));
+            assert_eq!(s, Settings::defaults());
         }
     }
 
@@ -444,7 +444,7 @@ mod tests {
     fn set_unknown_key_applies_nothing() {
         let (r, s) = apply("manual_speed=600&bogus=1");
         assert_eq!(r, Err(SetError::UnknownKey));
-        assert_eq!(s, Settings::defaults(T));
+        assert_eq!(s, Settings::defaults());
     }
 
     #[test]
@@ -457,7 +457,7 @@ mod tests {
         ] {
             let (r, s) = apply(q);
             assert_eq!(r, Err(SetError::BadValue), "{q}");
-            assert_eq!(s, Settings::defaults(T));
+            assert_eq!(s, Settings::defaults());
         }
     }
 
@@ -471,7 +471,7 @@ mod tests {
         ] {
             let (r, s) = apply(q);
             assert_eq!(r, Err(SetError::BadName), "{q}");
-            assert_eq!(s, Settings::defaults(T));
+            assert_eq!(s, Settings::defaults());
         }
     }
 
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn status_json_exact() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         let status = Controller::new(0, T, &s, 1).status(0);
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn status_phase_null_outside_random() {
-        let s = Settings::defaults(T);
+        let s = Settings::defaults();
         let mut c = Controller::new(0, T, &s, 1);
         c.set_mode(Mode::Off, 0, &s);
         let json = status_string(&c.status(0), &s);
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn status_fits_buffer() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         for p in &mut s.presets {
             p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
             p.outline = Outline::new(&[pt(u16::MAX, u16::MAX); MAX_POINTS]).unwrap();
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn status_fits_buffer_at_travel_max() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         for p in &mut s.presets {
             p.name = Name::new("MMMMMMMMMMMMMMMM").unwrap();
             p.outline = Outline::new(&[pt(1966, 1966); MAX_POINTS]).unwrap();
@@ -621,7 +621,7 @@ mod tests {
     }
 
     fn points(query: &str, preset: u8) -> (Result<(), PointsError>, Settings) {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.preset = preset;
         let r = apply_points(query, &mut s, T);
         (r, s)
@@ -635,7 +635,7 @@ mod tests {
             s.presets[0].outline.points(),
             &[pt(900, 900), pt(1500, 900), pt(1500, 1500)]
         );
-        assert_eq!(s.presets[1..], Settings::defaults(T).presets[1..]);
+        assert_eq!(s.presets[1..], Settings::defaults().presets[1..]);
     }
 
     #[test]
@@ -652,7 +652,7 @@ mod tests {
     fn points_wrong_room_conflict() {
         let (r, s) = points("r=0&p=900,900;1500,900;1500,1500", 1);
         assert_eq!(r, Err(PointsError::WrongRoom));
-        let mut want = Settings::defaults(T);
+        let mut want = Settings::defaults();
         want.preset = 1;
         assert_eq!(s, want);
         let mut state = state();
@@ -672,21 +672,21 @@ mod tests {
         let p: Vec<String> = (0..17).map(|i| format!("{},900", 600 + i)).collect();
         let (r, s) = points(&format!("r=0&p={}", p.join(";")), 0);
         assert_eq!(r, Err(PointsError::TooMany));
-        assert_eq!(s, Settings::defaults(T));
+        assert_eq!(s, Settings::defaults());
     }
 
     #[test]
     fn points_crossing_refused() {
         let (r, s) = points("r=0&p=600,600;1000,1000;1000,600;600,1000", 0);
         assert_eq!(r, Err(PointsError::Crossing));
-        assert_eq!(s, Settings::defaults(T));
+        assert_eq!(s, Settings::defaults());
     }
 
     #[test]
     fn points_duplicate_pair_refused() {
         let (r, s) = points("r=0&p=900,900;900,900", 0);
         assert_eq!(r, Err(PointsError::Crossing));
-        assert_eq!(s, Settings::defaults(T));
+        assert_eq!(s, Settings::defaults());
     }
 
     #[test]
@@ -702,13 +702,13 @@ mod tests {
         ] {
             let (r, s) = points(q, 0);
             assert_eq!(r, Err(PointsError::BadValue), "{q}");
-            assert_eq!(s, Settings::defaults(T));
+            assert_eq!(s, Settings::defaults());
         }
     }
 
     #[test]
     fn points_empty_clears() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         assert_eq!(apply_points("r=0&p=", &mut s, T), Ok(()));
@@ -716,7 +716,7 @@ mod tests {
     }
 
     fn state() -> State {
-        let settings = Settings::defaults(T);
+        let settings = Settings::defaults();
         State {
             controller: Controller::new(0, T, &settings, 1),
             settings,
@@ -779,7 +779,7 @@ mod tests {
 
     #[test]
     fn status_counts_every_room() {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].outline =
             Outline::new(&[pt(900, 900), pt(1500, 900), pt(1500, 1500)]).unwrap();
         s.presets[2].outline = Outline::new(&[pt(1000, 1000); MAX_POINTS]).unwrap();

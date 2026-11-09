@@ -103,7 +103,7 @@ mod host {
             .ok()
             .and_then(|b| <[u8; RECORD_LEN]>::try_from(b).ok())
             .and_then(|b| record::decode(&b, TRAVEL))
-            .unwrap_or_else(|| Settings::defaults(TRAVEL))
+            .unwrap_or_else(Settings::defaults)
     }
 
     fn save(settings: &Settings) {

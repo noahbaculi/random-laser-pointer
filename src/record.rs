@@ -100,7 +100,7 @@ pub fn decode(buf: &[u8; RECORD_LEN], travel: Travel) -> Option<Settings> {
     if c.u16() != MAGIC || c.u8() != VERSION {
         return None;
     }
-    let mut s = Settings::defaults(travel);
+    let mut s = Settings::defaults();
     s.preset = c.u8();
     for p in &mut s.presets {
         let len = c.u8() as usize;
@@ -170,7 +170,7 @@ mod tests {
     };
 
     fn edited() -> Settings {
-        let mut s = Settings::defaults(T);
+        let mut s = Settings::defaults();
         s.presets[0].name = Name::new("Kitchen").unwrap();
         s.presets[3].name = Name::new("abcdefghijklmnop").unwrap();
         s.presets[3].outline = Outline::new(&[p(600, 491), p(1700, 491), p(1700, 1966)]).unwrap();
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn round_trip_defaults() {
-        let s = Settings::defaults(T);
+        let s = Settings::defaults();
         assert_eq!(decode(&encode(&s), T), Some(s));
     }
 

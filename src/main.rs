@@ -57,7 +57,7 @@ async fn main(spawner: Spawner) -> ! {
     let settings = store
         .as_mut()
         .and_then(|s| s.load(travel))
-        .unwrap_or_else(|| Settings::defaults(travel));
+        .unwrap_or_else(Settings::defaults);
 
     let rng = Rng::new();
     let seed = || (rng.random() as u64) << 32 | rng.random() as u64;
