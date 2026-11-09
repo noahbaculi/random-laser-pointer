@@ -709,19 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn fine_moves_quarter_speed() {
-        let s = settings();
-        let mut c = boot(&s);
-        let t = 5 * S;
-        c.manual(Dir::Up, true, t);
-        for k in 1..=4 {
-            c.step(t + k * 20 * MS, &s);
-        }
-        assert_eq!(c.y, T.center() - 9);
-    }
-
-    #[test]
-    fn fine_change_applies_next_tick() {
+    fn fine_moves_quarter_speed_until_cleared() {
         let s = settings();
         let mut c = boot(&s);
         let t = 5 * S;
@@ -1117,6 +1105,16 @@ mod tests {
         assert!(c.y < y);
     }
 
+    fn assert_visits_in_order(seen: &[Point], tri: [Point; 3]) {
+        let mut want = [tri[0], tri[1], tri[2], tri[0]].into_iter().peekable();
+        for q in seen {
+            if want.peek() == Some(q) {
+                want.next();
+            }
+        }
+        assert_eq!(want.next(), None, "missed a point");
+    }
+
     #[test]
     fn preview_visits_points_in_order() {
         let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
@@ -1125,13 +1123,7 @@ mod tests {
         c.preview(S, &s);
         assert_eq!(c.status(S).mode, Mode::Manual);
         let (now, seen) = trace(&mut c, &s, S);
-        let mut want = [tri[0], tri[1], tri[2], tri[0]].into_iter().peekable();
-        for q in &seen {
-            if want.peek() == Some(q) {
-                want.next();
-            }
-        }
-        assert_eq!(want.next(), None, "missed a point");
+        assert_visits_in_order(&seen, tri);
         assert_eq!(p(c.x, c.y), tri[0]);
         let st = c.status(now);
         assert_eq!(st.mode, Mode::Random);
@@ -1167,13 +1159,7 @@ mod tests {
         assert_eq!(c.status(600 * S).phase, Some(Phase::Rest));
         c.preview(600 * S, &s);
         let (now, seen) = trace(&mut c, &s, 600 * S);
-        let mut want = [tri[0], tri[1], tri[2], tri[0]].into_iter().peekable();
-        for q in &seen {
-            if want.peek() == Some(q) {
-                want.next();
-            }
-        }
-        assert_eq!(want.next(), None, "missed a point");
+        assert_visits_in_order(&seen, tri);
         let st = c.status(now);
         assert_eq!(st.mode, Mode::Random);
         assert_eq!(st.phase, Some(Phase::Active));
@@ -1341,13 +1327,19 @@ mod tests {
     }
 
     #[test]
-    fn tiny_outline_stays_put() {
-        let mut s = short_dwell();
+    fn tiny_outline_stays_put_and_never_spins() {
+        let mut s = settings();
         s.presets[0].outline =
             Outline::new(&[p(1000, 1000), p(1001, 1000), p(1000, 1001)]).unwrap();
+        s.dwell_min_ms = 0;
+        s.dwell_max_ms = 0;
         let mut c = boot(&s);
-        let log = drive(&mut c, &s, 0, 3000);
-        assert!(log.iter().all(|(_, o)| o.next_us.is_some()));
+        let mut now = 0;
+        for _ in 0..3000 {
+            let next = c.step(now, &s).next_us.unwrap();
+            assert!(next > now, "deadline {next} not after {now}");
+            now = next;
+        }
         assert!((1000..=1001).contains(&c.x) && (1000..=1001).contains(&c.y));
     }
 
@@ -1378,22 +1370,6 @@ mod tests {
         let dx = out.x.map_or(0, |x| x.abs_diff(held.0));
         let dy = out.y.map_or(0, |y| y.abs_diff(held.1));
         assert!(dx.max(dy) <= 1);
-    }
-
-    #[test]
-    fn fixed_point_zero_dwell_never_spins() {
-        let mut s = settings();
-        s.presets[0].outline =
-            Outline::new(&[p(1000, 1000), p(1001, 1000), p(1000, 1001)]).unwrap();
-        s.dwell_min_ms = 0;
-        s.dwell_max_ms = 0;
-        let mut c = boot(&s);
-        let mut now = 0;
-        for _ in 0..3000 {
-            let next = c.step(now, &s).next_us.unwrap();
-            assert!(next > now, "deadline {next} not after {now}");
-            now = next;
-        }
     }
 
     #[test]

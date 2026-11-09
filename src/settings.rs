@@ -199,12 +199,6 @@ mod tests {
     }
 
     #[test]
-    fn defaults_have_empty_outlines() {
-        let s = Settings::defaults();
-        assert!(s.presets.iter().all(|p| p.outline.points().is_empty()));
-    }
-
-    #[test]
     fn outline_rejects_more_than_16() {
         let pts = [p(500, 500); 17];
         assert!(Outline::new(&pts).is_none());

@@ -577,47 +577,23 @@ mod tests {
 
     #[test]
     fn routes_new() {
-        assert_eq!(
-            route(&req("/d?dir=upleft")),
-            Route::Dpad {
-                dir: Dir::UpLeft,
-                fine: false
-            }
-        );
-        assert_eq!(
-            route(&req("/d?dir=upright")),
-            Route::Dpad {
-                dir: Dir::UpRight,
-                fine: false
-            }
-        );
-        assert_eq!(
-            route(&req("/d?dir=downleft")),
-            Route::Dpad {
-                dir: Dir::DownLeft,
-                fine: false
-            }
-        );
-        assert_eq!(
-            route(&req("/d?dir=downright")),
-            Route::Dpad {
-                dir: Dir::DownRight,
-                fine: false
-            }
-        );
-        assert_eq!(
-            route(&req("/goto?x=900&y=1000")),
-            Route::Goto(pt(900, 1000))
-        );
-        assert_eq!(
-            route(&req("/goto?y=1000&x=900")),
-            Route::Goto(pt(900, 1000))
-        );
-        assert_eq!(route(&req("/goto?x=a")), Route::BadRequest);
-        assert_eq!(route(&req("/goto?x=900")), Route::BadRequest);
-        assert_eq!(route(&req("/goto?x=900&y=99999")), Route::BadRequest);
-        assert_eq!(route(&req("/preview")), Route::Preview);
-        assert_eq!(route(&req("/points?r=0&p=1,2")), Route::Points("r=0&p=1,2"));
+        let dpad = |dir| Route::Dpad { dir, fine: false };
+        let cases = [
+            ("/d?dir=upleft", dpad(Dir::UpLeft)),
+            ("/d?dir=upright", dpad(Dir::UpRight)),
+            ("/d?dir=downleft", dpad(Dir::DownLeft)),
+            ("/d?dir=downright", dpad(Dir::DownRight)),
+            ("/goto?x=900&y=1000", Route::Goto(pt(900, 1000))),
+            ("/goto?y=1000&x=900", Route::Goto(pt(900, 1000))),
+            ("/goto?x=a", Route::BadRequest),
+            ("/goto?x=900", Route::BadRequest),
+            ("/goto?x=900&y=99999", Route::BadRequest),
+            ("/preview", Route::Preview),
+            ("/points?r=0&p=1,2", Route::Points("r=0&p=1,2")),
+        ];
+        for (q, want) in cases {
+            assert_eq!(route(&req(q)), want, "{q}");
+        }
     }
 
     fn points(query: &str, preset: u8) -> (Result<(), PointsError>, Settings) {
