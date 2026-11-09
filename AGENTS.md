@@ -73,7 +73,7 @@ The WireViz source and the generated SVG and PNG live under `docs/wiring/`. Rege
 
 - `no_std` with an `esp-alloc` heap; `main.rs` sets up two `heap_allocator!` regions before starting the scheduler.
 - Logging is `log` over `esp-println`; `esp_println::logger::init_logger_from_env()` reads `ESP_LOG`, which defaults to `info` via `.cargo/config.toml`. Override per run with `ESP_LOG=debug cargo run --release`.
-- Async is Embassy on the `esp-rtos` executor. `esp_rtos::start(timg0.timer0, sw_int.software_interrupt0)` must run before spawning tasks.
+- Async is Embassy on the `esp-rtos` executor. `esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0)` must run before spawning tasks.
 - Panic handler is `esp-backtrace` with `println` output. Do not remove it.
 - `main.rs` denies `clippy::mem_forget` and `clippy::large_stack_frames`. Annotate any intentional exceptions with `#[allow(..., reason = "...")]` rather than removing the lints. `.clippy.toml` sets the stack threshold; Embassy task futures live in the static task pool, so the lint measures future size, not real stack.
 

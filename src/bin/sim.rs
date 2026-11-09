@@ -209,7 +209,10 @@ mod host {
         if let Some(settings) = saved {
             save(&settings);
         }
-        if !matches!(route, api::Route::Status | api::Route::Page) {
+        if !matches!(
+            route,
+            api::Route::Status | api::Route::Page | api::Route::Dpad { .. }
+        ) {
             println!("{route:?} -> {:?}", out.reply);
         }
         match out.reply {

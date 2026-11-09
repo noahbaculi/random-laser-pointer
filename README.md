@@ -120,6 +120,7 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 - [x] Phone UI rebuilt around the settings API: 8-way D-pad, mode switch, settings sheet, room picker and outline editor
 - [x] Phone UI fixes: confirmed modes, connection state, per-mode home screen, save and delete confirmations, plain settings
 - [x] Replace the schematic with a WireViz diagram without the potentiometers and preview button
+- [ ] Version check so two phones editing one room cannot overwrite each other's points
 - [ ] Bench checklist, once a board is on hand:
   - [ ] Confirm the servo VCC source, and move the servos to 5V if they run on 3V3
   - [ ] Boots into Random with the AP up, the page loads, the D-pad takes over, and the mode buttons work

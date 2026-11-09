@@ -139,7 +139,7 @@ pub fn segment_inside(outline: &[Point], a: Point, b: Point) -> bool {
 
 /// Returns whether `outline` touches itself anywhere but between adjacent edges at their shared point
 ///
-/// Two equal points count as crossing, fewer than 3 points otherwise do not.
+/// Two equal points count as crossing, fewer than 3 points otherwise do not
 pub fn self_crossing(outline: &[Point]) -> bool {
     let n = outline.len();
     if n == 2 {

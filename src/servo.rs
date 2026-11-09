@@ -1,4 +1,4 @@
-//! Servo PWM setup shared by both modes.
+//! Servo PWM setup for the pan and tilt axes.
 
 use embedded_hal::pwm::SetDutyCycle;
 use esp_hal::gpio::DriveMode;
