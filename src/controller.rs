@@ -137,7 +137,6 @@ pub struct Controller {
     mode: Mode,
     phase: Phase,
     phase_end_us: u64,
-    idle: bool,
     laser: bool,
     x: u16,
     y: u16,
@@ -165,7 +164,6 @@ impl Controller {
             mode: Mode::Off,
             phase: Phase::Active,
             phase_end_us: 0,
-            idle: false,
             laser: false,
             x: travel.center(),
             y: travel.center(),
@@ -207,16 +205,12 @@ impl Controller {
     /// `fine` quarters the D-pad speed from the next tick
     pub fn manual(&mut self, dir: Dir, fine: bool, now_us: u64) {
         self.fine = fine;
-        if dir != Dir::Stop && self.mode != Mode::Manual {
+        if dir != Dir::Stop && (self.mode != Mode::Manual || self.drive != Drive::Dpad) {
             self.mode = Mode::Manual;
-            self.dir = Dir::Stop;
             self.enter_manual();
         }
         if self.mode != Mode::Manual {
             return;
-        }
-        if dir != Dir::Stop && self.drive != Drive::Dpad {
-            self.enter_manual();
         }
         // Keepalives must not reset the tick schedule
         if dir != Dir::Stop && !self.gliding(now_us) {
@@ -245,14 +239,13 @@ impl Controller {
         self.start_glide(Drive::Preview { line, leg: 0 }, now_us);
     }
 
-    /// Refreshes the idle state and drops Random's current move so the next target comes from the
-    /// new outline. A preview in progress ends in Random, as a finished trace does
+    /// Drops Random's current move so the next target comes from the new outline. A preview in
+    /// progress ends in Random, as a finished trace does
     pub fn outline_changed(&mut self, now_us: u64, settings: &Settings) {
         if self.mode == Mode::Manual && matches!(self.drive, Drive::Preview { .. }) {
             self.set_mode(Mode::Random, now_us, settings);
             return;
         }
-        self.idle = settings.outline().points().len() < 3;
         self.walk = Walk::Dwell { until_us: now_us };
         self.walk_at_us = now_us;
     }
@@ -327,8 +320,7 @@ impl Controller {
         };
         self.phase = phase;
         self.phase_end_us = start_us + minutes as u64 * US_PER_MIN;
-        self.idle = settings.outline().points().len() < 3;
-        self.laser = phase == Phase::Active && !self.idle;
+        self.laser = phase == Phase::Active && settings.outline().points().len() >= 3;
         // Pick a fresh target from the held position
         self.walk = Walk::Dwell { until_us: start_us };
         self.walk_at_us = start_us;
@@ -347,7 +339,7 @@ impl Controller {
             };
             self.enter_phase(next, self.phase_end_us, settings);
         }
-        self.laser = self.phase == Phase::Active && !self.idle;
+        self.laser = self.phase == Phase::Active && settings.outline().points().len() >= 3;
         if !self.laser {
             return (None, None, Some(self.phase_end_us));
         }
@@ -379,7 +371,7 @@ impl Controller {
             Walk::Moving(mut line) => {
                 let p = line.advance(1);
                 self.walk = Walk::Moving(line);
-                let moved = (self.move_x(p.x), self.move_y(p.y));
+                let moved = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
                 if line.done() {
                     self.dwell(now_us, settings);
                 } else {
@@ -446,7 +438,6 @@ impl Controller {
         }
 
         let delta = settings.manual_speed as u32 * (MANUAL_TICK_US / 1000) as u32;
-        let mut traced = false;
         let p = match self.drive {
             Drive::Dpad => self.nudge(if self.fine { delta / 4 } else { delta }),
             Drive::Goto(mut line) => {
@@ -462,19 +453,20 @@ impl Controller {
             }
             Drive::Preview { mut line, leg } => {
                 let p = line.advance(self.glide_counts(delta));
-                self.drive = Drive::Preview { line, leg };
-                if line.done() {
-                    self.next_leg(leg, p, settings);
-                    traced = self.drive == Drive::Dpad;
+                if !line.done() {
+                    self.drive = Drive::Preview { line, leg };
+                } else if let Some(next) = self.next_leg(leg, p, settings) {
+                    self.drive = next;
+                } else {
+                    self.drive = Drive::Dpad;
+                    let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
+                    self.set_mode(Mode::Random, now_us, settings);
+                    return (x, y, Some(now_us));
                 }
                 p
             }
         };
-        let (x, y) = (self.move_x(p.x), self.move_y(p.y));
-        if traced {
-            self.set_mode(Mode::Random, now_us, settings);
-            return (x, y, Some(now_us));
-        }
+        let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
         let next = (self.drive != Drive::Dpad || self.gliding(now_us)).then_some(self.next_tick_us);
         (x, y, next)
     }
@@ -487,17 +479,17 @@ impl Controller {
         n
     }
 
-    /// Heads to the point after `leg`, or ends the trace once back at the first
-    fn next_leg(&mut self, leg: usize, here: Point, settings: &Settings) {
+    /// Returns the leg to the point after `leg`, or `None` once the trace is back at the first
+    fn next_leg(&self, leg: usize, here: Point, settings: &Settings) -> Option<Drive> {
         let points = settings.outline().points();
         let next = leg + 1;
-        self.drive = match points.get(next % points.len().max(1)) {
-            Some(&to) if leg < points.len() => Drive::Preview {
+        match points.get(next % points.len().max(1)) {
+            Some(&to) if leg < points.len() => Some(Drive::Preview {
                 line: Line::new(here, to),
                 leg: next,
-            },
-            _ => Drive::Dpad,
-        };
+            }),
+            _ => None,
+        }
     }
 
     /// Returns the D-pad position after one tick of `delta` thousandths per axis
@@ -537,20 +529,14 @@ impl Controller {
             y: (self.manual_y / MILLI) as u16,
         }
     }
+}
 
-    fn move_x(&mut self, x: u16) -> Option<u16> {
-        (x != self.x).then(|| {
-            self.x = x;
-            x
-        })
-    }
-
-    fn move_y(&mut self, y: u16) -> Option<u16> {
-        (y != self.y).then(|| {
-            self.y = y;
-            y
-        })
-    }
+/// Sets `slot` to `v` and returns `Some(v)` only when it changed
+fn moved(slot: &mut u16, v: u16) -> Option<u16> {
+    (*slot != v).then(|| {
+        *slot = v;
+        v
+    })
 }
 
 #[cfg(test)]
