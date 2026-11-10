@@ -326,6 +326,8 @@ impl Controller {
             State::Random(r) => {
                 r.walk = Walk::Dwell { until_us: now_us };
                 r.walk_at_us = now_us;
+                let phase = r.phase;
+                self.laser = lit(phase, settings, self.here());
             }
             State::Manual(_) | State::Off => {}
         }
@@ -1203,6 +1205,20 @@ mod tests {
         c.step(now, &s);
         let moved = c.x.abs_diff(before.x).max(c.y.abs_diff(before.y));
         assert_eq!(moved, 9); // 450 counts/s over one 20 ms tick
+    }
+
+    #[test]
+    fn outline_change_darkens_outside_new_outline() {
+        let mut s = with_outline(&L);
+        let mut c = boot(&s);
+        c.goto(p(700, 700), S);
+        let (now, _) = glide(&mut c, &s, S);
+        c.set_mode(Mode::Random, now, &s);
+        assert!(c.status(now).laser);
+        s.presets[0].outline =
+            Outline::new(&[p(1300, 1300), p(1700, 1300), p(1500, 1700)]).unwrap();
+        c.outline_changed(now, &s);
+        assert!(!c.status(now).laser);
     }
 
     #[test]
