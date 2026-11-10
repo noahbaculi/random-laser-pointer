@@ -31,7 +31,6 @@ mod host {
         min: 491,
         max: 1966,
     };
-    const PORT: u16 = 8080;
     const SIM_PAGE: &str = include_str!("../sim.html");
 
     /// Shared state plus the controller wake flag, mirroring the firmware's `STATE` and `WAKE`
@@ -61,6 +60,10 @@ mod host {
         let settings_path = std::env::var("SIM_SETTINGS").unwrap_or_else(|_| {
             concat!(env!("CARGO_MANIFEST_DIR"), "/target/sim-settings.bin").to_owned()
         });
+        let port: u16 = std::env::var("SIM_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8080);
         let settings = load(&settings_path);
         let seed = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -79,18 +82,18 @@ mod host {
             settings_path,
         });
 
-        let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
+        let listener = match TcpListener::bind(("0.0.0.0", port)) {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("bind port {PORT}: {e}");
+                eprintln!("bind port {port}: {e}");
                 std::process::exit(1);
             }
         };
         match lan_ip() {
-            Some(ip) => println!("phone: http://{ip}:{PORT}/"),
+            Some(ip) => println!("phone: http://{ip}:{port}/"),
             None => println!("phone: no LAN address found"),
         }
-        println!("room view: http://localhost:{PORT}/sim");
+        println!("room view: http://localhost:{port}/sim");
 
         let s = Arc::clone(&shared);
         thread::spawn(move || controller_loop(&s));
