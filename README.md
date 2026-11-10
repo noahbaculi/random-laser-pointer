@@ -123,6 +123,14 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
 - [x] Phone UI fixes: confirmed modes, connection state, per-mode home screen, save and delete confirmations, plain settings
 - [x] Replace the schematic with a WireViz diagram without the potentiometers and preview button
 - [ ] Version check so two phones editing one room cannot overwrite each other's points
+- [ ] D-pad usable by keyboard and screen reader
+- [ ] Settings sheet traps focus, Escape returns focus, room picker gets menu semantics, screen changes move focus
+- [ ] Sliders read in seconds instead of microseconds, steppers name what they change
+- [ ] Point editor sketch holds its zoom while aiming, Insert keeps its space at 16 points and on new points
+- [ ] Long room names stay on one line, point count moves out of the name box, " · " spacing holds in the rest line
+- [ ] Pause slider easier to set between 0.9 and 2 s, closing the sheet mid-drag does not apply, check iOS thumb snap-back on poll
+- [ ] Travel-edge feedback in Manual, laser dot and rest dimming on the home sketch
+- [ ] Captive portal probes complete, HTTP pool survives the first join, fallbacks for `replaceChildren` and `inert` on old webviews
 - [ ] Bench checklist, once a board is on hand:
   - [ ] Confirm the servo VCC source, and move the servos to 5V if they run on 3V3
   - [ ] Boots into Random with the AP up, the page loads, the D-pad takes over, and the mode buttons work
