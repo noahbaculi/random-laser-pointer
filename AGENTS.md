@@ -34,7 +34,7 @@ It serves the phone page at `http://<lan-ip>:8080/` (printed at startup) and a r
 
 To try the page on a real phone, join the Mac's WiFi network and open the printed LAN URL. The page is `src/page.html`, served by both the firmware and the sim.
 
-Check that the page's self-crossing test agrees with `geometry.rs` on the shared case table (not part of CI, needs `node`):
+Check that the page's self-crossing test agrees with `geometry.rs` on the shared case table (CI runs it too, needs `node`):
 
 ```shell
 node tests/page_geometry.mjs
