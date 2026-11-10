@@ -208,8 +208,9 @@ return false}
 
 const $=id=>document.getElementById(id);
 const NS='http://www.w3.org/2000/svg';
-// Last good status, its arrival time, and recent round trips in ms
-let S=null,lastOkAt=0,offline=false,fails=0,rtts=[],edit=null,pendingMode=null,toastTimer=null;
+// Last good status, its arrival time, and recent round trips in ms. `weak` marks a failed request
+// since the last good one
+let S=null,lastOkAt=0,offline=false,fails=0,weak=false,rtts=[],edit=null,pendingMode=null,toastTimer=null;
 
 function get(p){const c=new AbortController(),t=setTimeout(()=>c.abort(),3000);
 return fetch(p,{cache:'no-store',signal:c.signal}).finally(()=>clearTimeout(t))}
@@ -224,15 +225,15 @@ function visible(id){return !$(id).classList.contains('hidden')}
 function show(id){for(const s of ['home','outline','point'])$(s).classList.toggle('hidden',s!==id);fineAim(false);release();if(id!=='point')edit=null;render()}
 function rebuildIfChanged(e,key,build){if(e._key===key)return;e._key=key;build()}
 
-function rtt(ms){rtts.push(ms);if(rtts.length>30)rtts.shift();renderConn()}
+function rtt(ms){rtts.push(ms);if(rtts.length>10)rtts.shift();renderConn()}
 const avgRtt=()=>rtts.reduce((a,b)=>a+b,0)/(rtts.length||1);
-function quality(){return offline?'Offline':!rtts.length?'--':avgRtt()<200?'OK':'Weak'}
+function quality(){return offline?'Offline':weak?'Weak':!rtts.length?'--':avgRtt()<200?'OK':'Weak'}
 
 // Status polling
 let pollTimer=null,seq=0,applied=0;
 function pollDelay(){return visible('point')?150:S&&S.previewing?500:2000}
 function poll(){clearTimeout(pollTimer);const my=++seq,t=performance.now();
-return get('/status').then(json).then(s=>{rtt(performance.now()-t);fails=0;setOffline(false);if(my>=applied){applied=my;fill(s)}})
+return get('/status').then(json).then(s=>{fails=0;weak=false;rtt(performance.now()-t);setOffline(false);if(my>=applied){applied=my;fill(s)}})
 .catch(()=>{if(++fails>=2)setOffline(true);render()})
 .finally(()=>{clearTimeout(pollTimer);pollTimer=setTimeout(poll,pollDelay())})}
 function setOffline(v){if(v===offline)return;offline=v;document.body.classList.toggle('offline',v);
@@ -320,7 +321,8 @@ const NAME={upleft:'Up left',up:'Up',upright:'Up right',left:'Left',right:'Right
 function dpadQuery(d){return '/d?dir='+d+(fineOn&&heldPad===$('pointPad')?'&fine=1':'')}
 // Resolves once this direction and anything queued behind it are sent
 function send(d){if(busy){pend=d;return busy}const t=performance.now();
-return busy=get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{})
+return busy=get(dpadQuery(d)).then(()=>{fails=0;weak=false;rtt(performance.now()-t)})
+.catch(()=>{weak=true;if(++fails>=2)setOffline(true);renderConn()})
 .finally(()=>{busy=null;if(pend!==null){const p=pend;pend=null;return send(p)}})}
 function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held&&b.parentNode===heldPad)}
 function press(pad,d){held=d;heldPad=pad;mark();send(d);if(visible('point')&&edit)edit.moved=true;
