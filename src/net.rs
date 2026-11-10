@@ -1,4 +1,4 @@
-//! Open WiFi access point, network stack runner, DHCP server, and captive DNS.
+//! WPA2 WiFi access point, network stack runner, DHCP server, and captive DNS.
 
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -7,19 +7,30 @@ use embassy_net::{Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::WIFI;
 use esp_radio::wifi::ap::AccessPointConfig;
-use esp_radio::wifi::{Config, ControllerConfig, Interface, WifiController};
+use esp_radio::wifi::{
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController,
+};
 
 use crate::mk_static;
 
-pub const AP_SSID: &str = "laser-dpad";
+pub const AP_SSID: &str = "lazuzuer";
+// shortcut: password is public in the repo by choice
+pub const AP_PASSWORD: &str = "kitties1";
+// WPA2 takes 8 to 63 bytes, and the driver rejects anything else at boot
+const _: () = assert!(AP_PASSWORD.len() >= 8 && AP_PASSWORD.len() <= 63);
 pub const GATEWAY_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 2, 1);
 // Resolves because the captive DNS answers every name with the gateway
 pub const HOSTNAME: &str = "laser.pointer";
 
 /// Brings up the access point, network stack, and DHCP server, then waits for the link
 pub async fn start(spawner: Spawner, wifi: WIFI<'static>, seed: u64) -> Stack<'static> {
-    let ap_config =
-        Config::AccessPoint(AccessPointConfig::default().with_ssid(AP_SSID.try_into().unwrap()));
+    let ap_config = Config::AccessPoint(
+        AccessPointConfig::default()
+            .with_ssid(AP_SSID.try_into().unwrap())
+            .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
+                AP_PASSWORD.try_into().unwrap(),
+            )),
+    );
     let device = Interface::access_point();
     let controller = WifiController::new(
         wifi,
@@ -49,7 +60,7 @@ pub async fn start(spawner: Spawner, wifi: WIFI<'static>, seed: u64) -> Stack<'s
 
     stack.wait_config_up().await;
     log::info!(
-        "Join open network `{AP_SSID}`, then open http://{HOSTNAME}/ or http://{GATEWAY_IP}/"
+        "Join `{AP_SSID}` with password `{AP_PASSWORD}`, then open http://{HOSTNAME}/ or http://{GATEWAY_IP}/"
     );
     stack
 }

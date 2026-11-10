@@ -30,7 +30,7 @@ Source in [`docs/wiring/overview.yaml`](docs/wiring/overview.yaml), regenerate w
 
 ## Operating modes
 
-The station boots into Random with the `laser-dpad` access point and web page always up. Switch modes from the page at any time:
+The station boots into Random with the `lazuzuer` access point and web page always up. Switch modes from the page at any time:
 
 | Mode | Laser | Servos |
 |------|-------|--------|
@@ -44,9 +44,9 @@ The station boots into Random with the `laser-dpad` access point and web page al
 
 ## Manual control over WiFi
 
-The station runs an open WiFi access point with DHCP and a captive DNS, and serves one page for steering, modes, rooms, and tuning.
+The station runs a WPA2 WiFi access point with DHCP and a captive DNS, and serves one page for steering, modes, rooms, and tuning.
 
-1. Join the `laser-dpad` WiFi network. The page opens in the sign-in sheet, or at <http://laser.pointer/> (plain `http`, browsers that force `https` will hang).
+1. Join the `lazuzuer` WiFi network with password `kitties1`. The page opens in the sign-in sheet, or at <http://laser.pointer/> (plain `http`, browsers that force `https` will hang).
 2. Tap Manual and hold any of the 8 D-pad directions to glide the laser. Sliding a held finger onto another button changes direction. The center tile shows connection quality (OK, Weak, Offline).
 3. Tap Random, Manual, or Off. Under Random, pick a room from the room row and change it with Edit outline. The gear holds Random speed, pause at each spot, play and rest times, and D-pad speed.
 
@@ -130,11 +130,12 @@ Without a board, `cargo run --target aarch64-apple-darwin --no-default-features 
   - [ ] Settings and the active preset survive a power cycle and a `cargo run` reflash
   - [ ] Settings save during Manual causes at most a brief glide stop
   - [ ] Captive sign-in sheet opens the page on iOS and Android
+  - [ ] Phone joins `lazuzuer` with the password and the captive sheet still opens
   - [ ] `laser.pointer` resolves on the phone
   - [ ] Live outline in the point editor keeps up at 150 ms polling
   - [ ] Page loads quickly from flash
   - [ ] Fine aim places a point precisely on the wall
-  - [ ] Offline banner shows when the phone leaves laser-dpad and clears on rejoin
+  - [ ] Offline banner shows when the phone leaves `lazuzuer` and clears on rejoin
   - [ ] In-page dialogs work in the iOS captive sign-in sheet
 - [x] Release a held D-pad when ‹, › or Insert opens another point, so a second finger can't keep the hold running
 - [x] Stop or restart a preview when the room changes mid-trace, instead of tracing the new room from the old leg
