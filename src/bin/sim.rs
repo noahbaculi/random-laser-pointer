@@ -179,19 +179,19 @@ mod host {
         if request.starts_with(b"GET /sim ") {
             return send(stream, "200 OK", "text/html", SIM_PAGE);
         }
-        let (response, saved) = {
+        let response = {
             let mut sim = shared.lock();
             let response = api::handle(request, &mut sim.state, shared.now_us());
             if response.wake {
                 sim.woken = true;
                 shared.wake.notify_one();
             }
-            let saved = response.save.then_some(sim.state.settings);
-            (response, saved)
+            // Under the lock so a later request cannot write first
+            if response.save {
+                save(&sim.state.settings);
+            }
+            response
         };
-        if let Some(settings) = saved {
-            save(&settings);
-        }
         if let Some((route, reply)) = response.log {
             println!("{route:?} -> {reply:?}");
         }
