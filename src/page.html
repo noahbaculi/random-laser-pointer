@@ -195,6 +195,12 @@ for(let j=i+2;j<last;j++)if(touch(a,b,at(j),at(j+1)))return true;
 return false;
 }
 // geometry:end
+// Returns whether two edges cross at a point interior to both, as `cross_properly` in geometry.rs
+function crossesProperly(pts){const n=pts.length,at=i=>pts[i%n];
+const orient=(a,b,c)=>Math.sign((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]));
+for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){const [a,b,c,d]=[at(i),at(i+1),at(j),at(j+1)];
+if(orient(a,b,c)*orient(a,b,d)<0&&orient(c,d,a)*orient(c,d,b)<0)return true}
+return false}
 
 const $=id=>document.getElementById(id);
 const NS='http://www.w3.org/2000/svg';
@@ -445,7 +451,7 @@ function wouldBe(){const p=S.points.slice(),live=[S.x,S.y];if(edit.kind==='new')
 function unsaved(){if(edit.kind==='new')return edit.moved;const p=S.points[edit.i];return edit.moved&&!!p&&(p[0]!==S.x||p[1]!==S.y)}
 function invalid(){const w=wouldBe(),li=liveIndex(),[x,y]=w[li];
 const j=w.findIndex((p,k)=>k!==li&&p[0]===x&&p[1]===y);
-return j>=0?'Same spot as point '+(j+1):selfCrossing(w)?'Crosses itself':null}
+return j>=0?'Same spot as point '+(j+1):!selfCrossing(w)?null:crossesProperly(w)?'Crosses itself':'Overlaps itself'}
 // Midpoint of edge `i`, pushed 8% of its length away from the vertex centroid
 function insertSpot(i){const P=S.points,n=P.length,a=P[i],b=P[(i+1)%n];
 const m=[(a[0]+b[0])/2,(a[1]+b[1])/2],d=[b[0]-a[0],b[1]-a[1]],len=Math.hypot(...d)||1;
@@ -493,9 +499,9 @@ const inv=invalid();if(inv){toast(inv,true);return false}
 const li=liveIndex(),e=edit;e.saving=true;
 return savePoints(wouldBe(),e.room).then(ok=>{e.saving=false;if(ok&&edit===e){edit={i:li,kind:'point',moved:false,room:e.room,n:S.points.length};render()}return ok})})}
 function leavePoint(go){if(!unsaved())return go();
-const inv=offline?null:invalid(),N=liveIndex()+1;
-dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:offline?'Not connected, so the new aim cannot be saved':'Save the new aim before leaving?',
-buttons:[{label:inv||'Save',kind:'primary',disabled:offline||!!inv},{label:'Discard'},{label:'Cancel'}]})
+const why=offline?null:leftManual()?'Station left Manual':aimPending()?'Laser still moving':invalid(),N=liveIndex()+1;
+dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:offline?'Not connected, so the new aim cannot be saved':why||'Save the new aim before leaving?',
+buttons:[{label:'Save',kind:'primary',disabled:offline||!!why},{label:'Discard'},{label:'Cancel'}]})
 .then(v=>{if(!edit)return;if(v==='Save')savePoint().then(ok=>{if(ok)go()});else if(v==='Discard')go()})}
 $('save').addEventListener('click',()=>{if(dirty()&&!invalid())savePoint()});
 const neighbour=d=>{const n=S.points.length;return ((edit.kind==='new'?(d<0?edit.i:edit.i+1):edit.i+d)%n+n)%n};
