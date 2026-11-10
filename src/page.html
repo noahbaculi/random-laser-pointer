@@ -445,7 +445,7 @@ $('pointTitle').textContent=edit.kind==='point'?'Point '+N+' of '+n:edit.i===n-1
 $('del').classList.toggle('hidden',edit.kind!=='point');
 sketch($('pointSketch'),un?{saved:S.points,would:wouldBe(),hi:liveIndex(),bad:!!inv}:{would:S.points,hi:edit.i});
 const st=$('saveState');
-rebuildIfChanged(st,String(un)+edit.kind,()=>{if(!un){st.replaceChildren(el('span','dim','Saved'))}
+rebuildIfChanged(st,String(un)+edit.kind+(n===1),()=>{if(!un){st.replaceChildren(el('span','dim',n===1?'Saved. Go back and tap + Add point for point 2':'Saved'))}
 else st.replaceChildren(edit.kind==='new'?'New':'Moved',el('span','tag','unsaved'))});
 const b=$('save');b.disabled=!un||!!inv;b.textContent=!un?'Saved':inv||'Save point '+N+' here';
 $('prev').disabled=$('next').disabled=edit.kind==='point'?n<2:n<1;
