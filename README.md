@@ -1,5 +1,7 @@
 # Random Laser Pointer
 
+![Phone page in Random, Manual, and outline editing](docs/screenshots/readme-preview.png)
+
 ## Design Requirements
 
 Random laser pointer station. Embedded Rust

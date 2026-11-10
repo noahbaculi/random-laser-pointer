@@ -79,3 +79,20 @@ load
 pw eval "() => document.getElementById('editOutline').click()"
 wait_for "!document.getElementById('outline').classList.contains('hidden')"
 shot outline
+
+# Compose the three phones onto a transparent sheet
+python3 -m http.server 13381 --bind 127.0.0.1 --directory . >"$tmp/http.log" 2>&1 &
+http_pid=$!
+i=0
+until curl -s -o /dev/null http://127.0.0.1:13381/; do
+    i=$((i + 1))
+    if [ "$i" -ge 50 ]; then
+        echo "http server did not start:" >&2
+        cat "$tmp/http.log" >&2
+        exit 1
+    fi
+    sleep 0.2
+done
+pw resize 1450 1000
+pw goto http://127.0.0.1:13381/tools/screenshot-sheet.html
+pw run-code "async page => await page.screenshot({ path: 'docs/screenshots/readme-preview.png', type: 'png', omitBackground: true })"
