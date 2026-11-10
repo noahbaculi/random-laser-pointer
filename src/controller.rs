@@ -225,7 +225,7 @@ impl Controller {
             | (Mode::Off, State::Off) => {}
             (Mode::Random, _) => {
                 self.state = State::Random(Random::enter(Phase::Active, now_us, settings));
-                self.laser = lit(Phase::Active, settings);
+                self.laser = lit(Phase::Active, settings, self.here());
             }
             (Mode::Manual, _) => self.enter_manual(),
             (Mode::Off, _) => {
@@ -284,6 +284,8 @@ impl Controller {
             },
             now_us,
         );
+        // Dark until the trace reaches the first point
+        self.laser = false;
     }
 
     /// Drops Random's current move so the next target comes from the new outline. A preview in
@@ -378,8 +380,8 @@ impl Controller {
             };
             r = Random::enter(next, r.phase_end_us, settings);
         }
-        self.laser = lit(r.phase, settings);
-        let out = if !self.laser {
+        let out = if r.phase == Phase::Rest || settings.outline().points().len() < 3 {
+            self.laser = false;
             (None, None, Some(r.phase_end_us))
         } else {
             let (x, y) = if now_us >= r.walk_at_us {
@@ -387,6 +389,8 @@ impl Controller {
             } else {
                 (None, None)
             };
+            // Judged after the move, so a leg that leaves the outline goes dark on that step
+            self.laser = lit(r.phase, settings, self.here());
             (x, y, Some(r.walk_at_us.min(r.phase_end_us)))
         };
         self.state = State::Random(r);
@@ -416,11 +420,20 @@ impl Controller {
                 }
             },
             Walk::Moving(mut line) => {
-                let p = line.advance(1);
+                // The dark approach from outside runs at Manual pace
+                let outside = inside_near(settings.outline().points(), self.here()).is_none();
+                let n = if outside {
+                    (settings.manual_speed as u32 * (MANUAL_TICK_US / 1000) as u32 / MILLI).max(1)
+                } else {
+                    1
+                };
+                let p = line.advance(n);
                 r.walk = Walk::Moving(line);
                 let moved = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
                 if line.done() {
                     self.dwell(r, now_us, settings);
+                } else if outside {
+                    r.walk_at_us = now_us + MANUAL_TICK_US;
                 } else {
                     r.walk_at_us = now_us + self.glide_us(settings);
                 }
@@ -508,6 +521,9 @@ impl Controller {
                     self.state = State::Preview { line, leg, milli };
                 } else if let Some(next) = self.next_leg(leg, p, milli, settings) {
                     self.state = next;
+                    if leg == 0 {
+                        self.laser = true;
+                    }
                 } else {
                     let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
                     self.set_mode(Mode::Random, now_us, settings);
@@ -585,9 +601,9 @@ impl Controller {
     }
 }
 
-/// Returns whether Random lights the laser: an active phase with an area
-fn lit(phase: Phase, settings: &Settings) -> bool {
-    phase == Phase::Active && settings.outline().points().len() >= 3
+/// Returns whether Random lights the laser: an active phase with `here` inside or on the outline
+fn lit(phase: Phase, settings: &Settings, here: Point) -> bool {
+    phase == Phase::Active && inside_near(settings.outline().points(), here).is_some()
 }
 
 fn gliding(dir: Dir, dir_at_us: u64, now_us: u64) -> bool {
@@ -1018,10 +1034,21 @@ mod tests {
         let (now, _) = glide(&mut c, &s, S);
         assert!(!contains(&L, p(c.x, c.y)));
         c.set_mode(Mode::Random, now, &s);
+        assert!(!c.status(now).laser);
         let mut t = now;
         let mut entered = false;
         for _ in 0..5000 {
-            t = c.step(t, &s).next_us.unwrap();
+            let was_lit = c.laser;
+            let out = c.step(t, &s);
+            assert_eq!(
+                out.laser,
+                inside_near(&L, p(c.x, c.y)).is_some(),
+                "at {:?}",
+                (c.x, c.y)
+            );
+            if !entered && !was_lit && !out.laser {
+                assert_eq!(out.next_us, Some(t + MANUAL_TICK_US));
+            }
             let inside = contains(&L, p(c.x, c.y));
             if entered {
                 assert!(inside, "left at {:?}", (c.x, c.y));
@@ -1029,8 +1056,48 @@ mod tests {
                 assert!(inside, "first move ended outside at {:?}", (c.x, c.y));
                 entered = true;
             }
+            t = out.next_us.unwrap();
         }
         assert!(entered);
+    }
+
+    #[test]
+    fn approach_moves_at_manual_speed() {
+        let s = with_outline(&L);
+        let mut c = boot(&s);
+        c.goto(p(700, 1700), S);
+        let (now, _) = glide(&mut c, &s, S);
+        c.set_mode(Mode::Random, now, &s);
+        let before = p(c.x, c.y);
+        c.step(now, &s);
+        let moved = c.x.abs_diff(before.x).max(c.y.abs_diff(before.y));
+        assert_eq!(moved, 9); // 450 counts/s over one 20 ms tick
+    }
+
+    #[test]
+    fn lit_on_edge() {
+        let s = with_outline(&L);
+        let mut c = boot(&s);
+        c.goto(p(600, 900), S); // on the left edge
+        let (now, _) = glide(&mut c, &s, S);
+        c.set_mode(Mode::Random, now, &s);
+        assert!(c.status(now).laser);
+    }
+
+    #[test]
+    fn preview_approach_is_dark() {
+        let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
+        let s = with_outline(&tri);
+        let mut c = boot(&s);
+        c.preview(S, &s);
+        assert!(!c.status(S).laser);
+        let mut now = S;
+        while p(c.x, c.y) != tri[0] {
+            let out = c.step(now, &s);
+            assert_eq!(out.laser, p(c.x, c.y) == tri[0]);
+            now = out.next_us.unwrap();
+        }
+        assert!(c.step(now, &s).laser);
     }
 
     #[test]
