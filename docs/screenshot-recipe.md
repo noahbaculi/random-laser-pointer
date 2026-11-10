@@ -3,7 +3,7 @@
 `mise run screenshots` runs `tools/screenshots.sh`, which regenerates `docs/screenshots/readme-preview.png` from the simulator. Run it after changing `src/page.html`.
 
 ```shell
-mise run screenshots # needs port 8080 free, exits 1 if a sim is already running
+mise run screenshots # needs ports 8080 and 13381 free, exits 1 if either is taken
 ```
 
 ## What it does

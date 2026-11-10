@@ -8,6 +8,10 @@ if curl -s -o /dev/null "$base/status"; then
     echo "port 8080 in use, stop the running sim" >&2
     exit 1
 fi
+if curl -s -o /dev/null http://127.0.0.1:13381/; then
+    echo "port 13381 in use, needed to serve the screenshot sheet" >&2
+    exit 1
+fi
 
 pw() {
     out=$(playwright-cli -s=rlp-screenshots "$@") || {
