@@ -360,6 +360,9 @@ for(const [id,d] of Object.entries(DUAL)){const e=$(id),[a,b]=e.querySelectorAll
 for(const i of [a,b]){
 i.addEventListener('input',()=>{if(i===a)a.value=Math.min(+a.value,+b.value);else b.value=Math.max(+b.value,+a.value);
 paint(e);$(id+'V').textContent=d.label(...thumbs(e))});
+// Arrow keys jump 10 steps, then reuse the input and change handlers
+i.addEventListener('keydown',ev=>{const s={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1}[ev.key];if(!s)return;ev.preventDefault();
+i.value=Math.min(+i.max,Math.max(+i.min,+i.value+s*10*i.step));i.dispatchEvent(new Event('input'));i.dispatchEvent(new Event('change'))});
 i.addEventListener('change',()=>set(d.q(...thumbs(e))).then(ok=>{if(!ok){i.blur();fillSheet()}}))}}
 const crosses=v=>{const n=(S.travel[1]-S.travel[0])/v;return 'Crosses in '+(n<10?n.toFixed(1):Math.round(n))+' s'};
 $('speed').addEventListener('input',()=>$('speedV').textContent=crosses(+$('speed').value));
