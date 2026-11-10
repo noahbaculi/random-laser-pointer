@@ -312,6 +312,9 @@ fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
     if *settings.outline() != before {
         c.outline_changed(now_us, settings);
     }
+    if *settings != before_settings {
+        c.retime(settings);
+    }
     // Skip the flash erase when a request lands on the current values
     outcome.settings_changed &= *settings != before_settings;
     outcome
@@ -489,6 +492,15 @@ mod tests {
 
     fn req(target: &str) -> String {
         format!("GET {target} HTTP/1.1\r\nHost: 192.168.2.1\r\n\r\n")
+    }
+
+    #[test]
+    fn set_phase_length_retimes_reply() {
+        let mut st = state();
+        let request = req("/set?active_min=1");
+        let response = handle(request.as_bytes(), &mut st, 30_000_000);
+        let (_, body) = render(&response);
+        assert!(body.contains(r#""phase_remaining_s":30,"#), "{body}");
     }
 
     #[test]

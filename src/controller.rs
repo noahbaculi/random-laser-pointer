@@ -132,6 +132,8 @@ enum Walk {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Random {
     phase: Phase,
+    // Chained from the previous end, not the wall clock
+    phase_start_us: u64,
     phase_end_us: u64,
     walk: Walk,
     walk_at_us: u64,
@@ -140,16 +142,24 @@ struct Random {
 impl Random {
     /// Returns `phase` starting at `start_us`, picking a fresh target from the held position
     fn enter(phase: Phase, start_us: u64, settings: &Settings) -> Random {
-        let minutes = match phase {
+        let mut r = Random {
+            phase,
+            phase_start_us: start_us,
+            phase_end_us: start_us,
+            walk: Walk::Dwell { until_us: start_us },
+            walk_at_us: start_us,
+        };
+        r.retime(settings);
+        r
+    }
+
+    /// Sets the phase end from its start and the current phase length
+    fn retime(&mut self, settings: &Settings) {
+        let minutes = match self.phase {
             Phase::Active => settings.active_min,
             Phase::Rest => settings.rest_min,
         };
-        Random {
-            phase,
-            phase_end_us: start_us + minutes as u64 * US_PER_MIN,
-            walk: Walk::Dwell { until_us: start_us },
-            walk_at_us: start_us,
-        }
+        self.phase_end_us = self.phase_start_us + minutes as u64 * US_PER_MIN;
     }
 }
 
@@ -175,11 +185,13 @@ enum Drive {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Random(Random),
-    /// `leg` indexes the point being approached, with the point count meaning the first again
+    /// `leg` indexes the point being approached, with the point count meaning the first again.
+    /// `resume` is the Random phase and its start to return to, `None` for a fresh active phase
     Preview {
         line: Line,
         leg: usize,
         milli: u32,
+        resume: Option<(Phase, u64)>,
     },
     Manual(Drive),
     Off,
@@ -287,12 +299,18 @@ impl Controller {
         let &[first, _, _, ..] = settings.outline().points() else {
             return;
         };
+        let resume = match self.state {
+            State::Random(r) => Some((r.phase, r.phase_start_us)),
+            State::Preview { resume, .. } => resume,
+            State::Manual(_) | State::Off => None,
+        };
         let line = Line::new(self.here(), first);
         self.start_line(
             State::Preview {
                 line,
                 leg: 0,
                 milli: 0,
+                resume,
             },
             now_us,
         );
@@ -304,12 +322,19 @@ impl Controller {
     /// progress ends in Random, as a finished trace does
     pub fn outline_changed(&mut self, now_us: u64, settings: &Settings) {
         match &mut self.state {
-            State::Preview { .. } => self.set_mode(Mode::Random, now_us, settings),
+            &mut State::Preview { resume, .. } => self.end_preview(resume, now_us, settings),
             State::Random(r) => {
                 r.walk = Walk::Dwell { until_us: now_us };
                 r.walk_at_us = now_us;
             }
             State::Manual(_) | State::Off => {}
+        }
+    }
+
+    /// Recomputes the running Random phase's end from the current phase lengths
+    pub fn retime(&mut self, settings: &Settings) {
+        if let State::Random(r) = &mut self.state {
+            r.retime(settings);
         }
     }
 
@@ -381,6 +406,16 @@ impl Controller {
         }
     }
 
+    fn end_preview(&mut self, resume: Option<(Phase, u64)>, now_us: u64, settings: &Settings) {
+        match resume {
+            Some((phase, start_us)) => {
+                self.state = State::Random(Random::enter(phase, start_us, settings));
+                self.laser = lit(phase, settings, self.here());
+            }
+            None => self.set_mode(Mode::Random, now_us, settings),
+        }
+    }
+
     fn enter_manual(&mut self) {
         self.laser = true;
         self.state = State::Manual(dpad_at(self.here()));
@@ -398,6 +433,7 @@ impl Controller {
         now_us: u64,
         settings: &Settings,
     ) -> (Option<u16>, Option<u16>, Option<u64>) {
+        r.retime(settings);
         // Boundaries chain from the stored end so phases never drift
         while now_us >= r.phase_end_us {
             let next = match r.phase {
@@ -541,18 +577,24 @@ impl Controller {
                 mut line,
                 leg,
                 mut milli,
+                resume,
             } => {
                 let p = line.advance(carry(&mut milli, delta));
                 if !line.done() {
-                    self.state = State::Preview { line, leg, milli };
-                } else if let Some(next) = self.next_leg(leg, p, milli, settings) {
+                    self.state = State::Preview {
+                        line,
+                        leg,
+                        milli,
+                        resume,
+                    };
+                } else if let Some(next) = self.next_leg(leg, p, milli, resume, settings) {
                     self.state = next;
                     if leg == 0 {
                         self.laser = true;
                     }
                 } else {
                     let (x, y) = (moved(&mut self.x, p.x), moved(&mut self.y, p.y));
-                    self.set_mode(Mode::Random, now_us, settings);
+                    self.end_preview(resume, now_us, settings);
                     return (x, y, Some(now_us));
                 }
                 p
@@ -564,7 +606,14 @@ impl Controller {
     }
 
     /// Returns the leg to the point after `leg`, or `None` once the trace is back at the first
-    fn next_leg(&self, leg: usize, here: Point, milli: u32, settings: &Settings) -> Option<State> {
+    fn next_leg(
+        &self,
+        leg: usize,
+        here: Point,
+        milli: u32,
+        resume: Option<(Phase, u64)>,
+        settings: &Settings,
+    ) -> Option<State> {
         let points = settings.outline().points();
         let next = leg + 1;
         match points.get(next % points.len().max(1)) {
@@ -572,6 +621,7 @@ impl Controller {
                 line: Line::new(here, to),
                 leg: next,
                 milli,
+                resume,
             }),
             _ => None,
         }
@@ -761,26 +811,32 @@ mod tests {
     }
 
     #[test]
-    fn phase_length_change_applies_at_next_boundary() {
+    fn phase_length_change_applies_now() {
         let mut s = settings();
         let mut c = boot(&s);
         c.step(300 * S, &s);
+        s.active_min = 6;
+        c.step(301 * S, &s);
+        assert_eq!(remaining(c.status(301 * S)), 59);
+        s.active_min = 1; // end at 60 s already passed
+        c.step(302 * S, &s);
+        let st = c.status(302 * S);
+        assert_eq!(phase(st), Some(Phase::Rest));
+        assert_eq!(remaining(st), 1260 - 302);
+        s.rest_min = 0;
+        c.step(303 * S, &s);
+        let st = c.status(303 * S);
+        assert_eq!(phase(st), Some(Phase::Active));
+        assert_eq!(remaining(st), 360 - 303); // chained from 60 s in 1 min steps
+    }
+
+    #[test]
+    fn retime_updates_status_before_step() {
+        let mut s = settings();
+        let mut c = boot(&s);
         s.active_min = 1;
-        c.step(599 * S, &s);
-        assert_eq!(phase(c.status(599 * S)), Some(Phase::Active));
-        c.step(600 * S, &s);
-        assert_eq!(phase(c.status(600 * S)), Some(Phase::Rest));
-        // Rest started with rest_min 20, so it keeps its 1800 s end
-        s.rest_min = 1;
-        c.step(700 * S, &s);
-        c.step(1799 * S, &s);
-        assert_eq!(phase(c.status(1799 * S)), Some(Phase::Rest));
-        c.step(1800 * S, &s);
-        assert_eq!(phase(c.status(1800 * S)), Some(Phase::Active));
-        c.step(1860 * S, &s);
-        assert_eq!(phase(c.status(1860 * S)), Some(Phase::Rest));
-        c.step(1920 * S, &s);
-        assert_eq!(phase(c.status(1920 * S)), Some(Phase::Active));
+        c.retime(&s);
+        assert_eq!(remaining(c.status(30 * S)), 30);
     }
 
     #[test]
@@ -1381,8 +1437,9 @@ mod tests {
         let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
         let mut s = with_outline(&tri);
         let mut c = boot(&s);
-        c.preview(0, &s);
-        let mut now = 0;
+        c.step(600 * S, &s);
+        c.preview(600 * S, &s);
+        let mut now = 600 * S;
         for _ in 0..20 {
             now = c.step(now, &s).next_us.unwrap();
         }
@@ -1391,12 +1448,12 @@ mod tests {
         c.outline_changed(now, &s);
         let st = c.status(now);
         assert!(matches!(st.activity, Activity::Random { .. }));
-        assert_eq!(phase(st), Some(Phase::Active));
+        assert_eq!(phase(st), Some(Phase::Rest));
         assert_ne!(st.activity, Activity::Previewing);
     }
 
     #[test]
-    fn preview_ends_in_random_active() {
+    fn preview_resumes_random_phase() {
         let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
         let s = with_outline(&tri);
         let mut c = boot(&s);
@@ -1406,12 +1463,33 @@ mod tests {
         let (now, seen) = trace(&mut c, &s, 600 * S);
         assert_visits_in_order(&seen, tri);
         let st = c.status(now);
-        assert!(matches!(st.activity, Activity::Random { .. }));
-        assert_eq!(phase(st), Some(Phase::Active));
-        assert_eq!(remaining(st), s.active_min as u32 * 60);
-        assert!(st.laser);
-        assert_ne!(st.activity, Activity::Previewing);
+        assert_eq!(phase(st), Some(Phase::Rest));
+        assert_eq!(remaining(st), (1800 * S - now).div_ceil(S) as u32);
+        assert!(!st.laser);
         assert_eq!(p(st.x, st.y), tri[0]);
+
+        let mut c = boot(&s);
+        c.manual(Dir::Up, false, 600 * S);
+        c.preview(600 * S, &s);
+        let (now, _) = trace(&mut c, &s, 600 * S);
+        let st = c.status(now);
+        assert_eq!(phase(st), Some(Phase::Active));
+        assert_eq!(remaining(st), 600);
+        assert!(st.laser);
+        assert_eq!(p(st.x, st.y), tri[0]);
+    }
+
+    #[test]
+    fn preview_past_phase_end_advances() {
+        let tri = [p(800, 800), p(1600, 800), p(1200, 1600)];
+        let mut s = with_outline(&tri);
+        s.active_min = 1;
+        let mut c = boot(&s);
+        c.preview(59 * S, &s);
+        let (now, _) = trace(&mut c, &s, 59 * S);
+        assert!(now > 60 * S);
+        c.step(now, &s);
+        assert_eq!(phase(c.status(now)), Some(Phase::Rest));
     }
 
     #[test]
