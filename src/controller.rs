@@ -13,6 +13,8 @@ pub const DEADMAN_US: u64 = 350_000;
 pub const TARGET_TRIES: u32 = 32;
 
 const US_PER_MIN: u64 = 60_000_000;
+/// Manual time with no D-pad move or goto before switching to Off
+pub const MANUAL_IDLE_US: u64 = 5 * US_PER_MIN;
 // Keeps a zero dwell on a fixed point from spinning the controller task
 const MIN_DWELL_US: u64 = 1_000;
 // Manual position resolution, so slow speeds still move every tick
@@ -191,6 +193,8 @@ pub struct Controller {
     y: u16,
     // Shared by D-pad, goto, and preview
     next_tick_us: u64,
+    // Last Manual entry, D-pad move, or goto
+    manual_at_us: u64,
     rng: SmallRng,
 }
 
@@ -204,6 +208,7 @@ impl Controller {
             x: travel.center(),
             y: travel.center(),
             next_tick_us: 0,
+            manual_at_us: 0,
             rng: SmallRng::seed_from_u64(seed),
         };
         c.set_mode(Mode::Random, now_us, settings);
@@ -213,6 +218,9 @@ impl Controller {
     /// Switches mode and ends any preview. Entering Random, or picking it during rest, restarts
     /// the active phase
     pub fn set_mode(&mut self, mode: Mode, now_us: u64, settings: &Settings) {
+        if mode == Mode::Manual {
+            self.manual_at_us = now_us;
+        }
         match (mode, self.state) {
             (
                 Mode::Random,
@@ -238,8 +246,11 @@ impl Controller {
     /// Applies a D-pad command. Any direction but `Stop` takes over into Manual and cancels a glide.
     /// `fine` quarters the D-pad speed from the next tick
     pub fn manual(&mut self, dir: Dir, fine: bool, now_us: u64) {
-        if dir != Dir::Stop && !matches!(self.state, State::Manual(Drive::Dpad { .. })) {
-            self.enter_manual();
+        if dir != Dir::Stop {
+            self.manual_at_us = now_us;
+            if !matches!(self.state, State::Manual(Drive::Dpad { .. })) {
+                self.enter_manual();
+            }
         }
         let State::Manual(Drive::Dpad {
             dir: held,
@@ -266,6 +277,7 @@ impl Controller {
             y: to.y.clamp(self.travel.min, self.travel.max),
         };
         let line = Line::new(self.here(), to);
+        self.manual_at_us = now_us;
         self.start_line(State::Manual(Drive::Goto { line, milli: 0 }), now_us);
     }
 
@@ -319,7 +331,21 @@ impl Controller {
         let (x, y, next_us) = match self.state {
             State::Off => (None, None, None),
             State::Random(r) => self.step_random(r, now_us, settings),
-            State::Manual(_) | State::Preview { .. } => self.step_manual(now_us, settings),
+            State::Manual(_) => {
+                let idle_at = self.manual_at_us + MANUAL_IDLE_US;
+                if now_us >= idle_at {
+                    self.set_mode(Mode::Off, now_us, settings);
+                    return Output {
+                        laser: false,
+                        x: None,
+                        y: None,
+                        next_us: None,
+                    };
+                }
+                let (x, y, next) = self.step_manual(now_us, settings);
+                (x, y, Some(next.map_or(idle_at, |n| n.min(idle_at))))
+            }
+            State::Preview { .. } => self.step_manual(now_us, settings),
         };
         Output {
             laser: self.laser,
@@ -905,19 +931,68 @@ mod tests {
         assert!(at(340 * MS) < at(320 * MS));
         assert_eq!(at(360 * MS), at(340 * MS));
         assert_eq!(at(400 * MS), at(340 * MS));
-        assert_eq!(c.step(t + 420 * MS, &s).next_us, None);
+        assert_eq!(c.step(t + 420 * MS, &s).next_us, Some(t + MANUAL_IDLE_US));
     }
 
     #[test]
-    fn manual_stays_until_mode_change() {
+    fn manual_idles_to_off_after_5_min() {
         let s = settings();
         let mut c = boot(&s);
         c.manual(Dir::Up, false, S);
-        c.step(S + 20 * MS, &s);
-        let later = S + 600 * S;
-        c.step(later, &s);
-        assert_eq!(c.status(later).activity, Activity::Manual);
-        assert!(c.status(later).laser);
+        c.manual(Dir::Stop, false, S + 100 * MS);
+        assert_eq!(c.step(S + 200 * MS, &s).next_us, Some(S + MANUAL_IDLE_US));
+        c.manual(Dir::Stop, false, 60 * S); // stop does not restart the timer
+        let out = c.step(S + MANUAL_IDLE_US - 1, &s);
+        assert!(out.laser);
+        assert_eq!(c.status(S + MANUAL_IDLE_US - 1).activity, Activity::Manual);
+        let out = c.step(S + MANUAL_IDLE_US, &s);
+        assert_eq!(
+            out,
+            Output {
+                laser: false,
+                x: None,
+                y: None,
+                next_us: None
+            }
+        );
+        assert_eq!(c.status(S + MANUAL_IDLE_US).activity, Activity::Off);
+    }
+
+    #[test]
+    fn manual_activity_restarts_idle_timer() {
+        let s = settings();
+        for act in 0..3 {
+            let mut c = boot(&s);
+            c.set_mode(Mode::Manual, S, &s);
+            let t = 4 * 60 * S;
+            match act {
+                0 => c.set_mode(Mode::Manual, t, &s),
+                1 => c.goto(p(1000, 1000), t),
+                _ => c.manual(Dir::Up, false, t),
+            }
+            c.step(S + MANUAL_IDLE_US, &s);
+            assert_eq!(
+                c.status(S + MANUAL_IDLE_US).activity,
+                Activity::Manual,
+                "{act}"
+            );
+        }
+    }
+
+    #[test]
+    fn keepalives_hold_off_idle_timeout() {
+        let s = settings();
+        let mut c = boot(&s);
+        let mut t = S;
+        while t < S + MANUAL_IDLE_US + 10 * S {
+            if t.is_multiple_of(120 * MS) {
+                c.manual(Dir::Left, false, t);
+            }
+            c.step(t, &s);
+            t += 20 * MS;
+        }
+        assert_eq!(c.status(t).activity, Activity::Manual);
+        assert!(c.status(t).laser);
     }
 
     // Follows `next_us` from `start` and records every step's time and output
@@ -1003,13 +1078,13 @@ mod tests {
         let mut now = start;
         let mut seen = vec![p(c.x, c.y)];
         loop {
-            let next = c.step(now, s).next_us;
+            let out = c.step(now, s);
             seen.push(p(c.x, c.y));
             assert!(seen.len() < 10_000, "glide never stopped");
-            match next {
-                Some(next) => now = next,
-                None => return (now, seen),
+            if c.target().is_none() {
+                return (now, seen);
             }
+            now = out.next_us.unwrap();
         }
     }
 
@@ -1156,7 +1231,7 @@ mod tests {
         assert_eq!(st.activity, Activity::Manual);
         assert_ne!(st.activity, Activity::Previewing);
         assert_eq!(c.target(), None);
-        assert_eq!(c.step(now + S, &s).next_us, None);
+        assert_eq!(c.step(now + S, &s).next_us, Some(now + MANUAL_IDLE_US));
         assert_eq!((c.x, c.y), here);
     }
 
@@ -1379,7 +1454,7 @@ mod tests {
         let before = (c.x, c.y);
         c.preview(2 * S, &s);
         assert_eq!(c.target(), None);
-        assert_eq!(c.step(2 * S, &s).next_us, None);
+        assert_eq!(c.step(2 * S, &s).next_us, Some(S + MANUAL_IDLE_US));
         assert_eq!((c.x, c.y), before);
     }
 

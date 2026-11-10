@@ -38,11 +38,11 @@ The station boots into Random with the `lazuzuer` access point and web page alwa
 |------|-------|--------|
 | Random, active | on | random walk inside the active room's outline |
 | Random, rest | off | hold position |
-| Manual | on | D-pad glide across full servo travel |
+| Manual | on | D-pad glide across full servo travel, Off after 5 minutes idle |
 | Off | off | hold position |
 
 - Random alternates 10 minutes active with 20 minutes rest. Entering Random from another mode restarts at the start of an active phase.
-- Any D-pad press switches to Manual. Leaving Manual takes a mode button.
+- Any D-pad press switches to Manual. Leaving Manual takes a mode button, or 5 minutes with no D-pad move or `/goto` switches to Off.
 
 ## Manual control over WiFi
 
