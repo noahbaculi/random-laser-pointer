@@ -32,7 +32,6 @@ mod host {
         max: 1966,
     };
     const PORT: u16 = 8080;
-    const SETTINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/sim-settings.bin");
     const SIM_PAGE: &str = include_str!("../sim.html");
 
     /// Shared state plus the controller wake flag, mirroring the firmware's `STATE` and `WAKE`
@@ -45,6 +44,7 @@ mod host {
         sim: Mutex<Sim>,
         wake: Condvar,
         start: Instant,
+        settings_path: String,
     }
 
     impl Shared {
@@ -58,7 +58,10 @@ mod host {
     }
 
     pub fn run() {
-        let settings = load();
+        let settings_path = std::env::var("SIM_SETTINGS").unwrap_or_else(|_| {
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/sim-settings.bin").to_owned()
+        });
+        let settings = load(&settings_path);
         let seed = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
@@ -73,6 +76,7 @@ mod host {
             }),
             wake: Condvar::new(),
             start: Instant::now(),
+            settings_path,
         });
 
         let listener = match TcpListener::bind(("0.0.0.0", PORT)) {
@@ -97,8 +101,8 @@ mod host {
     }
 
     /// Returns saved settings, or defaults when the file is missing or invalid
-    fn load() -> Settings {
-        fs::read(SETTINGS_PATH)
+    fn load(path: &str) -> Settings {
+        fs::read(path)
             .ok()
             .and_then(|b| <[u8; RECORD_LEN]>::try_from(b).ok())
             .and_then(|b| record::decode(&b, TRAVEL))
@@ -106,9 +110,9 @@ mod host {
             .unwrap_or_else(Settings::defaults)
     }
 
-    fn save(settings: &Settings) {
-        if let Err(e) = fs::write(SETTINGS_PATH, record::encode(settings, 0)) {
-            eprintln!("save {SETTINGS_PATH}: {e}");
+    fn save(path: &str, settings: &Settings) {
+        if let Err(e) = fs::write(path, record::encode(settings, 0)) {
+            eprintln!("save {path}: {e}");
         }
     }
 
@@ -188,7 +192,7 @@ mod host {
             }
             // Under the lock so a later request cannot write first
             if response.save {
-                save(&sim.state.settings);
+                save(&shared.settings_path, &sim.state.settings);
             }
             response
         };

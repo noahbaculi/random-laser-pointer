@@ -30,7 +30,7 @@ Run the simulator: the real controller, API, and page on the Mac, no board neede
 cargo run --target aarch64-apple-darwin --no-default-features --features sim --bin sim
 ```
 
-It serves the phone page at `http://<lan-ip>:8080/` (printed at startup) and a room view at `http://localhost:8080/sim` that draws the outline, laser, and target from `/status`. Settings persist to `target/sim-settings.bin` through `record`. It never exits on its own, so run it in a background shell and kill it after checks. It does not cover WiFi, captive DNS, servo PWM, or flash storage.
+It serves the phone page at `http://<lan-ip>:8080/` (printed at startup) and a room view at `http://localhost:8080/sim` that draws the outline, laser, and target from `/status`. Settings persist to `target/sim-settings.bin` through `record`. Set `SIM_SETTINGS=<path>` to use another file. It never exits on its own, so run it in a background shell and kill it after checks. It does not cover WiFi, captive DNS, servo PWM, or flash storage.
 
 To try the page on a real phone, join the Mac's WiFi network and open the printed LAN URL. The page is `src/page.html`, served by both the firmware and the sim.
 
