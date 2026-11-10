@@ -36,7 +36,7 @@ body.offline .seg button[aria-pressed=true]{background:var(--line);color:var(--f
 .sk{flex:1;min-height:0;position:relative;background:var(--sketch);border-radius:14px}
 .sk svg{position:absolute;inset:0;width:100%;height:100%;--c:var(--on)}
 .sk svg.bad{--c:var(--bad)}
-.sk .saved{fill:none;stroke:var(--line)}
+.sk .saved,.sk .frame{fill:none;stroke:var(--line)}
 .sk .area{fill:var(--c);stroke:var(--c)}
 .sk circle{fill:var(--c)}
 .sk .hi{fill:var(--warn)}
@@ -320,15 +320,16 @@ pad.addEventListener('contextmenu',e=>e.preventDefault())}
 function node(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
 function sketch(svg,{saved=null,would=[],hi=-1,bad=false,numbered=false}={}){
 const all=(saved||[]).concat(would),X=x=>-x;
-let x0,x1,y0,y1;
+let x0,x1,y0,y1,frame=false;
 // Under 3 points the bounds follow the laser, so show the whole travel box instead
 if(Math.max(would.length,(saved||[]).length)>=3){x0=Math.min(...all.map(p=>X(p[0])));x1=Math.max(...all.map(p=>X(p[0])));y0=Math.min(...all.map(p=>p[1]));y1=Math.max(...all.map(p=>p[1]))}
-else{x0=X(S.travel[1]);x1=X(S.travel[0]);y0=S.travel[0];y1=S.travel[1]}
+else{x0=X(S.travel[1]);x1=X(S.travel[0]);y0=S.travel[0];y1=S.travel[1];frame=true}
 // Wider margin leaves room for point numbers
 const m=numbered?Math.max(120,0.18*Math.max(x1-x0,y1-y0)):Math.max(60,0.1*Math.max(x1-x0,y1-y0)),w=x1-x0+2*m,h=y1-y0+2*m,u=Math.max(w,h)/150;
 svg.setAttribute('viewBox',`${x0-m} ${y0-m} ${w} ${h}`);svg.replaceChildren();
 const P=p=>p.map(([x,y])=>X(x)+','+y).join(' ');
 svg.classList.toggle('bad',bad);
+if(frame)svg.append(node('rect',{x:x0,y:y0,width:x1-x0,height:y1-y0,class:'frame','stroke-width':u*1.5,'stroke-dasharray':u*4}));
 if(saved&&saved.length)svg.append(node('polygon',{points:P(saved),class:'saved','stroke-width':u*1.5,'stroke-dasharray':u*4}));
 if(would.length)svg.append(node('polygon',{points:P(would),class:'area','fill-opacity':.13,'stroke-width':u*1.5,'stroke-linejoin':'round'}));
 const cx=would.reduce((a,p)=>a+X(p[0]),0)/(would.length||1),cy=would.reduce((a,p)=>a+p[1],0)/(would.length||1);
