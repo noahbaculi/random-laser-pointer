@@ -152,7 +152,8 @@ input[type=range]::-moz-range-thumb{width:32px;height:32px;border:0;border-radiu
 <div id=outline class="screen hidden">
 <header><button class=icon id=outBack aria-label=Back>&#8249;</button><span class=title>Outline</span></header>
 <div class=banner role=alert>Not connected to lazuzuer</div>
-<label class="namebox live"><span aria-hidden=true>&#9998;</span><input id=name maxlength=16 aria-label="Room name" enterkeyhint=done><span class=dim id=nameCount></span></label>
+<label class="namebox live"><span aria-hidden=true>&#9998;</span><input id=name maxlength=16 aria-label="Room name" aria-describedby=nameHint enterkeyhint=done><span class=dim id=nameCount></span></label>
+<small class=dim id=nameHint>Letters, numbers and punctuation, 16 max</small>
 <div class=sk style="flex:none;height:28vh"><svg id=roomSketch aria-label="Room outline"></svg></div>
 <div class="scroll list live" id=pointList></div>
 <div class="actions live"><button id=addPoint>+ Add point</button><button id=preview>Preview</button></div>
@@ -265,7 +266,7 @@ for(const [id,k] of [['bRandom','random'],['bManual','manual'],['bOff','off']])$
 renderStatus();
 if(!S)return;
 $('roomName').textContent=S.names[S.preset];$('roomCount').textContent=pts(S.counts[S.preset]);
-if(m==='random'){sketch($('homeSketch'),{would:S.points});$('homePreview').textContent=S.previewing?'Stop preview':'Preview';$('homePreview').disabled=!S.previewing&&S.points.length<3}
+if(m==='random'){sketch($('homeSketch'),{would:S.points});$('homePreview').textContent=S.previewing?'Stop preview':S.points.length<3?'Needs 3 points':'Preview';$('homePreview').disabled=!S.previewing&&S.points.length<3}
 renderPicker()}
 // Runs `path`, then `ok` and a poll, or toasts `msg`. Never rejects
 function act(path,msg='No connection',ok){const aim=/^\/(goto|mode\?m=manual)/.test(path);if(aim)modeGuard=Infinity;
@@ -283,7 +284,8 @@ if(!visible('home'))return;
 const dot=$('stDot');let line,kind='ok',sub=['','',null];
 if(!S){line='Connecting';kind=''}
 else if(S.previewing){line='Previewing outline';sub=['','',['Stop',toRandom]]}
-else if(S.mode==='random'&&S.counts[S.preset]<3){line=S.names[S.preset]+' has no outline';kind='warn';sub=['','Needs 3 points · ',['Edit outline',openOutline]]}
+else if(S.mode==='random'&&S.counts[S.preset]<3){const k=S.counts[S.preset];
+line=S.names[S.preset]+(k?' needs 3 points (has '+k+')':' has no outline')+' · laser off';kind='warn';sub=['','',['Edit outline',openOutline]]}
 else if(S.mode==='random'&&S.phase==='rest'){line='Resting, laser off';kind='';sub=['Back in '+mmss(remaining()),' · ',['Start now',toRandom]]}
 else if(S.mode==='random'){line='Playing, laser on';sub=S.rest_min?['Rests in '+mmss(remaining()),'',null]:['','No rest',null]}
 else{line='Manual, laser on';sub=['','Steer with the arrows · Random room: '+S.names[S.preset],null]}
@@ -434,11 +436,18 @@ rebuildIfChanged(list,JSON.stringify(S.points),()=>{list.replaceChildren(...S.po
 b.append(el('span',null,'›'));b.addEventListener('click',()=>openPoint(i));return b}));
 if(!n)list.append(el('div','dim','No points yet. Add point aims the laser where it is now.'))});
 $('addPoint').disabled=n>=16;$('addPoint').textContent=n>=16?'16 points max':'+ Add point';
-$('preview').textContent=S.previewing?'Stop preview':'Preview';$('preview').disabled=!S.previewing&&n<3}
+$('preview').textContent=S.previewing?'Stop preview':n<3?'Needs 3 points':'Preview';$('preview').disabled=!S.previewing&&n<3}
 let nameRoom=null;
-function commitName(){const v=$('name').value.trim();if(!S)return;
-if(nameRoom!==S.preset){toast('Room changed, name not saved',true);$('name').value=S.names[S.preset];return}
-if(v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v)).then(ok=>{if(ok)toast('Renamed')})}
+// Firmware names are ASCII, so straighten smart quotes and drop the ones JSON would escape
+const plainName=v=>v.replace(/[‘’‚‛]/g,"'").replace(/[“”„‟]/g,'"').replace(/["\\]/g,'');
+function commitName(){if(!S)return;const v=plainName($('name').value).trim(),back=()=>$('name').value=S.names[S.preset];
+const bad='Use plain letters, numbers and punctuation';
+if(nameRoom!==S.preset){toast('Room changed, name not saved',true);back();return}
+if(!v){toast("Name can't be empty",true);back();return}
+if(v===S.names[S.preset]){back();return}
+if(/[^\x20-\x7e]/.test(v)){toast(bad,true);back();return}
+apply('/set?name='+encodeURIComponent(v),()=>bad).then(ok=>{if(ok)toast('Renamed');else back()})}
+$('name').addEventListener('input',()=>{const v=plainName($('name').value);if(v!==$('name').value)$('name').value=v});
 $('name').addEventListener('focus',()=>nameRoom=S&&S.preset);
 $('name').addEventListener('blur',commitName);
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
