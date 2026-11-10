@@ -277,7 +277,8 @@ fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
         travel,
     } = state;
     let before = *settings.outline();
-    let outcome = match route {
+    let before_settings = *settings;
+    let mut outcome = match route {
         Route::Page => done(Reply::Page),
         Route::Status => done(Reply::Status),
         Route::Dpad { dir, fine } => {
@@ -311,6 +312,8 @@ fn dispatch(route: Route<'_>, state: &mut State, now_us: u64) -> Outcome {
     if *settings.outline() != before {
         c.outline_changed(now_us, settings);
     }
+    // Skip the flash erase when a request lands on the current values
+    outcome.settings_changed &= *settings != before_settings;
     outcome
 }
 
@@ -915,6 +918,26 @@ mod tests {
         );
         assert_eq!(flags(Route::BadRequest), (Reply::BadRequest, false, false));
         assert_eq!(flags(Route::NotFound), (Reply::NotFound, false, false));
+    }
+
+    #[test]
+    fn noop_requests_do_not_save() {
+        let mut st = state();
+        let points = Route::Points("r=0&p=900,900;1500,900;1500,1500");
+        assert!(dispatch(points, &mut st, 0).settings_changed);
+        // Defaults are preset 0 and manual_speed 450, and 1 clamps to the 50 floor
+        assert!(dispatch(Route::Set("manual_speed=50"), &mut st, 0).settings_changed);
+        for route in [
+            points,
+            Route::Set(""),
+            Route::Set("preset=0"),
+            Route::Set("manual_speed=50"),
+            Route::Set("manual_speed=1"),
+        ] {
+            let o = dispatch(route, &mut st, 0);
+            assert_eq!(o.reply, Reply::Status, "{route:?}");
+            assert!(!o.settings_changed, "{route:?}");
+        }
     }
 
     #[test]
