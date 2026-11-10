@@ -242,7 +242,8 @@ function set(q){return apply('/set?'+q,()=>'Setting refused')}
 
 // Home
 for(const b of $('modes').children)b.addEventListener('click',()=>{const m=b.dataset.m;pendingMode=m;renderModes();
-act('/mode?m='+m,'No connection, mode not changed')
+// A held D-pad's keepalives would switch straight back to Manual
+release().then(()=>act('/mode?m='+m,'No connection, mode not changed'))
 .finally(()=>{if(pendingMode===m)pendingMode=null;renderModes()})});
 function renderModes(){const m=S&&S.mode;for(const b of $('modes').children){
 b.setAttribute('aria-pressed',String(b.dataset.m===m));b.classList.toggle('pending',b.dataset.m===pendingMode)}}
@@ -294,7 +295,8 @@ $('homePreview').addEventListener('click',togglePreview);
 
 // D-pad: hold to glide, keepalive every 120 ms, slide to change direction
 // `busy` is the request in flight, `pend` the direction queued behind it
-let fineOn=false,held=null,heldPad=null,timer=null,busy=null,pend=null;
+// `holdId` is the pointer that owns the hold
+let fineOn=false,held=null,heldPad=null,holdId=null,timer=null,busy=null,pend=null;
 const GLYPH={upleft:'◤',up:'▲',upright:'◥',left:'◀',right:'▶',downleft:'◣',down:'▼',downright:'◢'};
 const NAME={upleft:'Up left',up:'Up',upright:'Up right',left:'Left',right:'Right',downleft:'Down left',down:'Down',downright:'Down right'};
 // Fine aim only on the point editor's D-pad
@@ -306,17 +308,24 @@ return busy=get(dpadQuery(d)).then(()=>rtt(performance.now()-t)).catch(()=>{})
 function mark(){for(const b of document.querySelectorAll('.pad button'))b.classList.toggle('held',b.dataset.d===held&&b.parentNode===heldPad)}
 function press(pad,d){held=d;heldPad=pad;mark();send(d);if(visible('point')&&edit)edit.moved=true;
 clearInterval(timer);timer=setInterval(()=>{if(held)send(held)},120)}
-function release(){if(!held)return busy||Promise.resolve();held=null;mark();clearInterval(timer);timer=null;pend=null;return send('stop')}
+// Stops the glide but keeps the pointer's hold, for a finger slid off the buttons
+function lift(){if(!held)return busy||Promise.resolve();held=null;mark();clearInterval(timer);timer=null;pend=null;return send('stop')}
+function release(){holdId=null;return lift()}
 function dirAt(e){const t=document.elementFromPoint(e.clientX,e.clientY);const b=t&&t.closest('[data-d]');return b?b.dataset.d:null}
 for(const pad of document.querySelectorAll('.pad')){
 for(const d of ['upleft','up','upright','left',null,'right','downleft','down','downright']){
 let e;if(d){e=el('button',null,GLYPH[d]);e.dataset.d=d;e.setAttribute('aria-label',NAME[d])}
 else{e=el('div','q');e.append(el('span','dot'),el('span',null,'--'))}
 pad.append(e)}
-pad.addEventListener('pointerdown',e=>{const d=dirAt(e);if(!d||offline)return;e.preventDefault();pad.setPointerCapture(e.pointerId);press(pad,d)});
-pad.addEventListener('pointermove',e=>{if(!held)return;const d=dirAt(e);if(d&&d!==held)press(pad,d)});
-for(const t of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(t,release);
+pad.addEventListener('pointerdown',e=>{if(holdId!==null&&e.pointerId!==holdId||e.pointerType==='mouse'&&e.button!==0)return;
+const d=dirAt(e);if(!d||offline)return;e.preventDefault();pad.setPointerCapture(e.pointerId);holdId=e.pointerId;press(pad,d)});
+// The gaps between buttons keep the hold, the center tile and outside the pad lift it
+pad.addEventListener('pointermove',e=>{if(e.pointerId!==holdId)return;const t=document.elementFromPoint(e.clientX,e.clientY),b=t&&t.closest('[data-d]');
+if(b){if(b.dataset.d!==held)press(pad,b.dataset.d)}else if(t!==pad)lift()});
+for(const t of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(t,e=>{if(e.pointerId===holdId)release()});
 pad.addEventListener('contextmenu',e=>e.preventDefault())}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')release()});
+for(const t of ['blur','pagehide'])window.addEventListener(t,()=>release());
 
 // Sketch, flipped to match the D-pad (Left raises x), zoomed to every drawn point
 function node(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
