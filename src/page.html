@@ -258,7 +258,12 @@ $('roomName').textContent=S.names[S.preset];$('roomCount').textContent=pts(S.cou
 if(m==='random'){sketch($('homeSketch'),{would:S.points});$('homePreview').textContent=S.previewing?'Stop preview':'Preview';$('homePreview').disabled=!S.previewing&&S.points.length<3}
 renderPicker()}
 // Runs `path`, then `ok` and a poll, or toasts `msg`. Never rejects
-function act(path,msg='No connection',ok){return get(path).then(r=>{if(!r.ok)throw r.status;if(ok)ok();return poll()}).catch(()=>toast(msg,true))}
+function act(path,msg='No connection',ok){const aim=/^\/(goto|mode\?m=manual)/.test(path);if(aim)modeGuard=Infinity;
+return get(path).then(r=>{if(!r.ok)throw r.status;if(aim)modeGuard=seq+1;if(ok)ok();return poll()}).catch(()=>{if(aim)modeGuard=0;toast(msg,true)})}
+// First poll sequence that reflects our own goto or Manual switch
+let modeGuard=0;
+const aimPending=()=>applied<modeGuard||!!S.target;
+const leftManual=()=>S.mode!=='manual'&&applied>=modeGuard;
 const toRandom=()=>act('/mode?m=random');
 const togglePreview=()=>S.previewing?toRandom():act('/preview');
 // Seconds left in the phase, counted down locally between polls
@@ -427,11 +432,12 @@ if(v&&v!==S.names[S.preset])set('name='+encodeURIComponent(v)).then(ok=>{if(ok)t
 $('name').addEventListener('focus',()=>nameRoom=S&&S.preset);
 $('name').addEventListener('blur',commitName);
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('name').blur()});
-$('addPoint').addEventListener('click',()=>act('/mode?m=manual',undefined,()=>{edit={i:S.points.length-1,kind:'new',moved:false,room:S.preset};show('point')}));
+$('addPoint').addEventListener('click',()=>act('/mode?m=manual',undefined,()=>{edit={i:S.points.length-1,kind:'new',moved:false,room:S.preset,n:S.points.length};show('point')}));
 $('preview').addEventListener('click',togglePreview);
 $('outBack').addEventListener('click',()=>{show('home');if(S&&S.mode==='manual')toRandom();else poll()});
 
-// Point editor. `edit.i` is the point, or the one a new point goes after
+// Point editor. `edit.i` is the point, or the one a new point goes after. `edit.n` is the point
+// count it last saw, so a change from another phone shows
 const liveIndex=()=>edit.kind==='new'?edit.i+1:edit.i;
 function wouldBe(){const p=S.points.slice(),live=[S.x,S.y];if(edit.kind==='new')p.splice(edit.i+1,0,live);else p[edit.i]=live;return p}
 function unsaved(){if(edit.kind==='new')return true;const p=S.points[edit.i];return edit.moved&&!!p&&(p[0]!==S.x||p[1]!==S.y)}
@@ -446,31 +452,35 @@ let nx=-d[1]/len,ny=d[0]/len;if(nx*(m[0]-c[0])+ny*(m[1]-c[1])<0){nx=-nx;ny=-ny}
 const [lo,hi]=S.travel,cl=v=>Math.min(hi,Math.max(lo,Math.round(v)));
 return [cl(m[0]+nx*0.08*len),cl(m[1]+ny*0.08*len)]}
 function goto([x,y]){return act('/goto?x='+x+'&y='+y)}
-function openPoint(i){edit={i,kind:'point',moved:false,room:S.preset};show('point');goto(S.points[i])}
+function openPoint(i){edit={i,kind:'point',moved:false,room:S.preset,n:S.points.length};show('point');goto(S.points[i])}
 function fineAim(on){fineOn=on;$('fine').setAttribute('aria-pressed',String(on));$('fine').textContent=on?'Fine aim: on':'Fine aim'}
 $('fine').addEventListener('click',()=>fineAim(!fineOn));
 function fillPoint(){
 // Another client switched rooms, so this point no longer belongs to the active one
-if(edit.room!==S.preset){toast('Room changed',true);show('outline');return}
+// `S.points` is the new room's by now, so only `edit` knows if the point was unsaved
+if(edit.room!==S.preset){toast(edit.kind==='new'||edit.moved?'Room changed on another phone, unsaved point dropped':'Room changed',true);show('outline');return}
 const n=S.points.length;
-if(edit.kind==='point'&&edit.i>=n){if(!n){show('outline');return}edit.i=n-1}
-if(edit.kind==='new'&&edit.i>=n)edit.i=n-1;
-const N=liveIndex()+1,un=unsaved(),inv=un?invalid():null;
+if(!edit.saving&&n!==edit.n){toast('Outline changed elsewhere',true);show('outline');return}
+const N=liveIndex()+1,un=unsaved(),inv=un?invalid():null,lm=leftManual(),ap=aimPending();
 $('pointTitle').textContent=edit.kind==='point'?'Point '+N+' of '+n:edit.i===n-1?'New point '+N:'New point after '+(edit.i+1);
 $('del').classList.toggle('hidden',edit.kind!=='point');
 sketch($('pointSketch'),un?{saved:S.points,would:wouldBe(),hi:liveIndex(),bad:!!inv}:{would:S.points,hi:edit.i});
 const st=$('saveState');
-rebuildIfChanged(st,String(un)+edit.kind+(n===1),()=>{if(!un){st.replaceChildren(el('span','dim',n===1?'Saved. Go back and tap + Add point for point 2':'Saved'))}
+rebuildIfChanged(st,String(un)+edit.kind+(n===1)+lm,()=>{if(lm)st.replaceChildren(el('span','dim','Station left Manual. Tap the D-pad to take over'));else if(!un){st.replaceChildren(el('span','dim',n===1?'Saved. Go back and tap + Add point for point 2':'Saved'))}
 else st.replaceChildren(edit.kind==='new'?'New':'Moved',el('span','tag','unsaved'))});
-const b=$('save');b.disabled=!un||!!inv;b.textContent=!un?'Saved':inv||'Save point '+N+' here';
+const b=$('save');b.disabled=!un||!!inv||lm||ap;b.textContent=!un?'Saved':ap?'Moving':inv||'Save point '+N+' here';
 $('prev').disabled=$('next').disabled=edit.kind==='point'?n<2:n<1;
 const ins=$('insert');ins.classList.toggle('hidden',edit.kind!=='point'||n<2||n>=16);ins.textContent='+ Insert after '+N}
 function savePoints(p,room){
 if(selfCrossing(p)){toast('That outline crosses itself',true);return Promise.resolve(false)}
 return apply('/points?r='+room+'&p='+p.map(v=>v.join(',')).join(';'),st=>st===409?'Room changed elsewhere, reopen it':'Points refused')}
 // Wait for the D-pad stop and a fresh position, so the save lands where the laser stopped
-function savePoint(){return release().then(poll).then(()=>{if(!edit)return false;const inv=invalid();if(inv){toast(inv,true);return false}
-const li=liveIndex();return savePoints(wouldBe(),edit.room).then(ok=>{if(ok&&edit){edit={i:li,kind:'point',moved:false,room:edit.room};render()}return ok})})}
+function savePoint(){return release().then(poll).then(()=>{if(!edit)return false;
+if(leftManual()){toast('Station left Manual',true);return false}
+if(aimPending()){toast('Laser still moving',true);return false}
+const inv=invalid();if(inv){toast(inv,true);return false}
+const li=liveIndex(),e=edit;e.saving=true;
+return savePoints(wouldBe(),e.room).then(ok=>{e.saving=false;if(ok&&edit===e){edit={i:li,kind:'point',moved:false,room:e.room,n:S.points.length};render()}return ok})})}
 function leavePoint(go){if(!unsaved())return go();
 const inv=offline?null:invalid(),N=liveIndex()+1;
 dialog({title:edit.kind==='new'?'New point '+N+' not saved':'Point '+N+' moved',text:offline?'Not connected, so the new aim cannot be saved':'Save the new aim before leaving?',
@@ -481,11 +491,12 @@ const neighbour=d=>{const n=S.points.length;return ((edit.kind==='new'?(d<0?edit
 $('prev').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(-1))));
 $('next').addEventListener('click',()=>leavePoint(()=>openPoint(neighbour(1))));
 $('pointBack').addEventListener('click',()=>leavePoint(()=>show('outline')));
-$('insert').addEventListener('click',()=>leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false,room:edit.room};show('point');goto(insertSpot(i))}));
+$('insert').addEventListener('click',()=>leavePoint(()=>{const i=edit.i;edit={i,kind:'new',moved:false,room:edit.room,n:S.points.length};show('point');goto(insertSpot(i))}));
 $('del').addEventListener('click',()=>{const {i,room}=edit,k=S.points.length-1;
 dialog({title:'Delete point '+(i+1)+'?',text:k<3?'Random pauses until it has 3 points':'The outline keeps '+k+' points',
 buttons:[{label:'Delete',kind:'danger'},{label:'Cancel'}]})
-.then(v=>{if(!edit||v!=='Delete')return;savePoints(S.points.filter((_,j)=>j!==i),room).then(ok=>{if(ok)show('outline')})})});
+.then(v=>{if(!edit||v!=='Delete')return;const e=edit;e.saving=true;
+savePoints(S.points.filter((_,j)=>j!==i),room).then(ok=>{e.saving=false;if(ok)show('outline')})})});
 
 sheet(false);show('home');poll();
 </script></body></html>
