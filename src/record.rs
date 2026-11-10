@@ -1,14 +1,14 @@
 //! Fixed-layout flash record for `Settings`, little-endian with a CRC-32 trailer.
 
 use crate::geometry::{self_crossing, Point};
-use crate::settings::{Name, Outline, Settings, Travel, MAX_POINTS, NAME_MAX_LEN};
+use crate::settings::{Name, Outline, Settings, Travel, MAX_POINTS, NAME_MAX_LEN, PRESET_COUNT};
 
 const MAGIC: u16 = 0x1A5E;
 const VERSION: u8 = 2;
 // Name length, name, point count, points
 const PRESET_LEN: usize = 1 + NAME_MAX_LEN + 1 + MAX_POINTS * 4;
-// Header, 4 presets, globals, 2 pad bytes
-const BODY_LEN: usize = 4 + 4 * PRESET_LEN + 4 * 4 + 3 * 2 + 2;
+// Header, presets, globals, 2 pad bytes
+const BODY_LEN: usize = 4 + PRESET_COUNT * PRESET_LEN + 4 * 4 + 3 * 2 + 2;
 /// Whole words, since `esp-storage` writes 4-byte units
 pub const RECORD_LEN: usize = BODY_LEN + 4;
 
