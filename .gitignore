@@ -20,3 +20,6 @@ target/
 # Agent scratch, never committed
 docs/superpowers/
 .superpowers/
+
+# playwright-cli page snapshots from tools/screenshots.sh
+.playwright-cli/

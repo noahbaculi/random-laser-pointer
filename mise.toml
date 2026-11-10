@@ -1,6 +1,12 @@
 [tools]
 uv = "latest"
+node = "22"
+"npm:@playwright/cli" = "0.1"
 
 [tasks.wireviz]
 description = "Regenerate WireViz SVG and PNG from docs/wiring/overview.yaml"
 run = "uvx --from wireviz wireviz -f sp -o docs/wiring/generated docs/wiring/overview.yaml"
+
+[tasks.screenshots]
+description = "Regenerate the README phone screenshots from the simulator"
+run = "sh tools/screenshots.sh"
