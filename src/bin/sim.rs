@@ -102,11 +102,12 @@ mod host {
             .ok()
             .and_then(|b| <[u8; RECORD_LEN]>::try_from(b).ok())
             .and_then(|b| record::decode(&b, TRAVEL))
+            .map(|(_, s)| s)
             .unwrap_or_else(Settings::defaults)
     }
 
     fn save(settings: &Settings) {
-        if let Err(e) = fs::write(SETTINGS_PATH, record::encode(settings)) {
+        if let Err(e) = fs::write(SETTINGS_PATH, record::encode(settings, 0)) {
             eprintln!("save {SETTINGS_PATH}: {e}");
         }
     }

@@ -1,7 +1,8 @@
 //! Settings persistence in a dedicated flash partition with a debounced save.
 //!
 //! The record lives in its own `fat`-typed data partition at `0x20000`, outside
-//! the first 64 KB that every flash rewrites. One 4 KB sector, rewritten whole.
+//! the first 64 KB that every flash rewrites. Saves alternate between two 4 KB
+//! sectors, so a torn write leaves the previous record to load.
 
 use embassy_time::{with_timeout, Duration};
 use esp_bootloader_esp_idf::partitions::{
@@ -16,14 +17,18 @@ use crate::control::{with_state, SETTINGS_CHANGED};
 
 // Collapses a slider drag into one sector erase
 const SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
+const SECTOR: u32 = FlashStorage::SECTOR_SIZE;
 
 pub struct SettingsStore {
     flash: FlashStorage<'static>,
     offset: u32,
+    // Slot and sequence of the last good record
+    slot: u32,
+    seq: u32,
 }
 
 impl SettingsStore {
-    /// Locates the settings partition. `None` if it is missing or the table is unreadable
+    /// Locates the settings partition. `None` if it is missing, under two sectors, or the table is unreadable
     pub fn new(flash: FLASH<'static>) -> Option<Self> {
         let mut flash = FlashStorage::new(flash);
         let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
@@ -38,38 +43,60 @@ impl SettingsStore {
             log::warn!("store: no settings partition in table");
             return None;
         };
+        if part.len() < 2 * SECTOR {
+            log::warn!(
+                "store: settings partition is {} bytes, need {}",
+                part.len(),
+                2 * SECTOR
+            );
+            return None;
+        }
+        // Nothing loaded yet, so the first save lands in slot 0
         Some(Self {
             flash,
             offset: part.offset(),
+            slot: 1,
+            seq: 0,
         })
     }
 
-    /// Reads and validates the record. `None` on I/O error or a bad record
+    /// Returns the newest valid record of the two slots. `None` when neither is readable and valid
     pub fn load(&mut self, travel: Travel) -> Option<Settings> {
-        let mut buf = [0u8; RECORD_LEN];
-        if let Err(e) = self.flash.read_nor(self.offset, &mut buf) {
-            log::warn!("store: read failed: {e:?}");
-            return None;
-        }
-        let settings = record::decode(&buf, travel);
-        if settings.is_none() {
+        let slots = [0, 1].map(|i| {
+            let mut buf = [0u8; RECORD_LEN];
+            match self.flash.read_nor(self.offset + i * SECTOR, &mut buf) {
+                Ok(()) => record::decode(&buf, travel),
+                Err(e) => {
+                    log::warn!("store: read slot {i} failed: {e:?}");
+                    None
+                }
+            }
+        });
+        let Some((slot, seq, settings)) = record::newest(slots) else {
             log::warn!("store: no valid record, using defaults");
-        }
-        settings
+            return None;
+        };
+        self.slot = slot as u32;
+        self.seq = seq;
+        Some(settings)
     }
 
-    /// Erases the sector and writes the record. Logs and returns on I/O error
+    /// Writes the record to the other slot, keeping the last good one intact. Logs and returns on I/O error
     pub fn save(&mut self, settings: &Settings) {
-        let start = self.offset;
-        if let Err(e) = self.flash.erase(start, start + FlashStorage::SECTOR_SIZE) {
+        let slot = 1 - self.slot;
+        let seq = self.seq.wrapping_add(1);
+        let start = self.offset + slot * SECTOR;
+        if let Err(e) = self.flash.erase(start, start + SECTOR) {
             log::warn!("store: erase failed: {e:?}");
             return;
         }
-        if let Err(e) = self.flash.write_nor(start, &record::encode(settings)) {
+        if let Err(e) = self.flash.write_nor(start, &record::encode(settings, seq)) {
             log::warn!("store: write failed: {e:?}");
             return;
         }
-        log::info!("store: settings saved");
+        self.slot = slot;
+        self.seq = seq;
+        log::info!("store: settings saved to slot {slot}");
     }
 }
 

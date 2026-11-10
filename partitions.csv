@@ -4,5 +4,5 @@
 # partition table,,         0x8000,   4K
 nvs,        data, nvs,      0x9000,   24K,
 phy_init,   data, phy,      0xf000,   4K,
-settings,   data, fat,      0x20000,  4K,
+settings,   data, fat,      0x20000,  8K,
 factory,    app,  factory,  0x30000,  3M,
